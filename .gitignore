@@ -1,5 +1,6 @@
 # --- secrets / local config ---
 .env.local
+.env
 cookies.txt
 *.log
 

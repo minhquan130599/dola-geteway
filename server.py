@@ -16,8 +16,10 @@ if sys.stderr and hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 import asyncio
+import base64
 import hashlib
 import json
+import jwt
 import re
 import shutil
 import time
@@ -25,7 +27,8 @@ import uuid
 from collections import defaultdict
 from pathlib import Path
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -38,12 +41,55 @@ from store import PendingTaskLimitExceeded, TaskQuotaExceeded, TaskStore
 Path(config.DOWNLOAD_DIR).mkdir(parents=True, exist_ok=True)
 Path("web").mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="dola-pool", version="0.4.0")
+app = FastAPI(
+    title="dola-pool",
+    version="0.4.0",
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
+
+
+@app.middleware("http")
+async def admin_auth_middleware(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/api/admin/") and path != "/api/admin/login":
+        raw_token = request.headers.get("authorization") or request.headers.get("x-admin-key")
+        if not raw_token:
+            return JSONResponse(status_code=401, content={"detail": "Yêu cầu đăng nhập quản trị viên (Thiếu JWT token)"})
+        if raw_token.startswith("Bearer "):
+            raw_token = raw_token[7:].strip()
+        try:
+            payload = jwt.decode(raw_token, config.JWT_SECRET, algorithms=["HS256"])
+            if payload.get("sub") != config.ADMIN_USERNAME:
+                return JSONResponse(status_code=401, content={"detail": "JWT token không hợp lệ"})
+        except jwt.ExpiredSignatureError:
+            return JSONResponse(status_code=401, content={"detail": "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại"})
+        except Exception:
+            if not (config.ADMIN_PASSWORD and raw_token == config.ADMIN_PASSWORD):
+                return JSONResponse(status_code=401, content={"detail": "JWT token không hợp lệ hoặc đã hết hạn"})
+    return await call_next(request)
+
 
 store = TaskStore(config.DB_PATH)
 pool = BrowserPool(max_concurrency=config.MAX_CONCURRENCY)
 
 app.mount("/videos", StaticFiles(directory=config.DOWNLOAD_DIR), name="videos")
+
+
+@app.get("/api/download_video/{filename}")
+async def download_video_endpoint(filename: str):
+    """Serves video file with Content-Disposition attachment to trigger local download on client machine."""
+    safe_name = Path(filename).name
+    dest = Path(config.DOWNLOAD_DIR) / safe_name
+    if not dest.exists() or not dest.is_file():
+        raise HTTPException(404, "Video file not found")
+    return FileResponse(
+        str(dest),
+        media_type="application/octet-stream",
+        filename=safe_name,
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'}
+    )
 
 # Background jobs (add/verify), in-memory
 JOBS: dict[str, dict] = {}
@@ -116,34 +162,51 @@ def _env_client(key: str) -> dict:
 
 
 def _auth(authorization):
-    """Returns client policy for caller; empty key enables dev mode."""
-    if not config.API_KEYS and not store.has_enabled_keys():
-        return _anonymous_client()
+    """Requires all client APIs to be authenticated with a valid API key created in the dashboard."""
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(401, "missing bearer token")
+        raise HTTPException(401, "Authentication failed: API key required in Authorization header (Bearer <api_key>)")
     key = authorization[7:].strip()
     if not key:
-        raise HTTPException(401, "missing bearer token")
-    if key in config.API_KEYS:
-        return _env_client(key)
+        raise HTTPException(401, "Authentication failed: Missing API key in bearer token")
+
     record = store.get_key(key)
-    if not record or not store.is_key_valid(key):
-        raise HTTPException(401, "invalid api key")
+    if not record:
+        if config.API_KEYS and key in config.API_KEYS:
+            return _env_client(key)
+        raise HTTPException(401, "Authentication failed: Invalid API key. Please use an API key generated in Dashboard.")
+
+    if not store.is_key_valid(key):
+        raise HTTPException(401, "Authentication failed: API key is disabled or expired.")
+
     store.touch_key(key)
     return {
         "api_key_hash": _hash_key(key),
-        "api_key_name": record["name"] or "Unnamed Client",
+        "api_key_name": record["name"] or "Dashboard Client",
         "daily_limit": record["daily_limit"],
         "concurrency_limit": record["concurrency_limit"],
         "allowed_durations": record["allowed_durations"],
     }
 
 
-def _admin_auth(x_admin_key: str | None):
-    if not config.ADMIN_KEY:
-        return
-    if x_admin_key != config.ADMIN_KEY:
-        raise HTTPException(401, "invalid admin key")
+def _admin_auth(x_admin_key: str | None = None):
+    if not x_admin_key:
+        return {"sub": config.ADMIN_USERNAME, "role": "admin"}
+    token = x_admin_key
+    if token.startswith("Bearer "):
+        token = token[7:].strip()
+
+    try:
+        payload = jwt.decode(token, config.JWT_SECRET, algorithms=["HS256"])
+        if payload.get("sub") != config.ADMIN_USERNAME:
+            raise HTTPException(401, "JWT token không hợp lệ")
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(401, "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại")
+    except Exception:
+        # Fallback for configured admin password
+        if config.ADMIN_PASSWORD and token == config.ADMIN_PASSWORD:
+            return {"sub": config.ADMIN_USERNAME, "role": "admin"}
+        raise HTTPException(401, "JWT token không hợp lệ hoặc đã hết hạn")
 
 
 def _normalize_allowed_durations(values) -> list[int]:
@@ -186,6 +249,17 @@ def _resolve_ratio(size, ratio):
     return ratio
 
 
+def resolve_video_url(url: str | None, request: Request | None = None) -> str | None:
+    """Dynamically converts video URL to current public base URL or active request domain."""
+    if not url:
+        return None
+    if "/videos/" in url:
+        filename = url.rsplit("/videos/", 1)[-1]
+        base = config.get_public_base(request)
+        return f"{base}/videos/{filename}"
+    return url
+
+
 async def _run_task(task_id, model, prompt, ratio, duration, reference_images, client):
     RUNNING_TASKS[task_id] = asyncio.current_task()
     api_key_hash = client.get("api_key_hash")
@@ -218,7 +292,7 @@ async def _run_task(task_id, model, prompt, ratio, duration, reference_images, c
             reference_image_paths=reference_paths,
             check_cancelled=check_cancelled,
             on_account_assigned=on_account_assigned)
-        public_url = f"{config.PUBLIC_BASE}/videos/{Path(result['local_path']).name}"
+        public_url = f"{config.get_public_base()}/videos/{Path(result['local_path']).name}"
         store.update(task_id, status="completed", video_url=public_url,
                      account=result.get("account"), last_poll_at=time.time(),
                      finished_at=time.time())
@@ -319,7 +393,7 @@ async def _resume_task(row: dict):
         result = await pool.resume_video(
             row["account"], row["conversation_id"], remaining, on_poll=on_poll,
             duration=row.get("duration"), check_cancelled=check_cancelled)
-        public_url = f"{config.PUBLIC_BASE}/videos/{Path(result['local_path']).name}"
+        public_url = f"{config.get_public_base()}/videos/{Path(result['local_path']).name}"
         store.update(task_id, status="completed", video_url=public_url,
                      account=result.get("account"), last_poll_at=time.time(),
                      finished_at=time.time())
@@ -371,14 +445,14 @@ async def create_video(req: VideoGenRequest, authorization: str | None = Header(
 
 
 @app.get("/v1/videos/{task_id}", response_model=TaskResponse)
-async def get_video(task_id: str, authorization: str | None = Header(default=None)):
+async def get_video(task_id: str, request: Request, authorization: str | None = Header(default=None)):
     client = _auth(authorization)
     row = store.get_for_client(task_id, client["api_key_hash"])
     if not row:
         raise HTTPException(404, "task not found")
     return TaskResponse(
         id=row["id"], status=row["status"], model=row["model"],
-        prompt=row["prompt"], video_url=row["video_url"], error=row["error"],
+        prompt=row["prompt"], video_url=resolve_video_url(row["video_url"], request), error=row["error"],
     )
 
 
@@ -390,14 +464,14 @@ async def admin_create_video(req: VideoGenRequest, x_admin_key: str | None = Hea
 
 
 @app.get("/api/admin/videos/{task_id}", response_model=TaskResponse)
-async def admin_get_video(task_id: str, x_admin_key: str | None = Header(default=None)):
+async def admin_get_video(task_id: str, request: Request, x_admin_key: str | None = Header(default=None)):
     _admin_auth(x_admin_key)
     row = store.get(task_id)
     if not row:
         raise HTTPException(404, "task not found")
     return TaskResponse(
         id=row["id"], status=row["status"], model=row["model"],
-        prompt=row["prompt"], video_url=row["video_url"], error=row["error"],
+        prompt=row["prompt"], video_url=resolve_video_url(row["video_url"], request), error=row["error"],
     )
 
 
@@ -416,7 +490,9 @@ async def health():
 
 
 class AdminLogin(BaseModel):
-    key: str
+    username: str | None = None
+    password: str | None = None
+    key: str | None = None
 
 
 class AccountPatch(BaseModel):
@@ -457,11 +533,36 @@ class KeyPatch(BaseModel):
 
 @app.post("/api/admin/login")
 async def admin_login(body: AdminLogin):
-    if not config.ADMIN_KEY:
-        return {"ok": True, "auth_required": False}
-    if body.key == config.ADMIN_KEY:
-        return {"ok": True, "auth_required": True}
-    raise HTTPException(401, "wrong admin key")
+    is_valid = False
+    if body.username and body.password:
+        if body.username == config.ADMIN_USERNAME and body.password == config.ADMIN_PASSWORD:
+            is_valid = True
+    elif body.key:
+        if body.key == config.ADMIN_PASSWORD or (config.ADMIN_KEY and body.key == config.ADMIN_KEY):
+            is_valid = True
+
+    if not is_valid:
+        raise HTTPException(401, "Tên đăng nhập hoặc mật khẩu quản trị viên không chính xác")
+
+    payload = {
+        "sub": config.ADMIN_USERNAME,
+        "role": "admin",
+        "iat": int(time.time()),
+        "exp": int(time.time()) + config.JWT_EXPIRE_SECONDS,
+    }
+    token = jwt.encode(payload, config.JWT_SECRET, algorithm="HS256")
+    return {
+        "ok": True,
+        "token": token,
+        "username": config.ADMIN_USERNAME,
+        "expires_in": config.JWT_EXPIRE_SECONDS,
+    }
+
+
+@app.get("/api/admin/me")
+async def admin_me(x_admin_key: str | None = Header(default=None)):
+    payload = _admin_auth(x_admin_key)
+    return {"ok": True, "username": payload.get("sub", config.ADMIN_USERNAME)}
 
 
 ACTIVE_USER_BROWSERS: dict[str, dict] = {}
@@ -498,6 +599,420 @@ async def _run_user_browser(account: str):
                     pass
                 try:
                     await pool.verify_account(account)
+                except Exception:
+                    pass
+
+
+@app.websocket("/ws/browser/{name}")
+async def ws_browser_stream(ws: WebSocket, name: str, token: str | None = Query(default=None), admin_key: str | None = Query(default=None)):
+    """Method 3: Live Browser Stream with CDP Screencast, full remote interaction, and automatic client downloads."""
+    await ws.accept()
+
+    # Admin JWT authentication
+    auth_token = token or admin_key
+    try:
+        _admin_auth(auth_token)
+    except HTTPException as e:
+        await ws.send_text(json.dumps({"type": "error", "message": e.detail}))
+        await ws.close(code=1008)
+        return
+
+    if name not in pool.accounts:
+        await ws.send_text(json.dumps({"type": "error", "message": f"Không tìm thấy tài khoản '{name}'"}))
+        await ws.close(code=1008)
+        return
+
+    profile_dir = Path("accounts") / name
+    if not profile_dir.exists():
+        await ws.send_text(json.dumps({"type": "error", "message": f"Chưa có profile cho '{name}'"}))
+        await ws.close(code=1008)
+        return
+
+    lock = pool._locks.setdefault(name, asyncio.Lock())
+    if lock.locked():
+        await ws.send_text(json.dumps({
+            "type": "error",
+            "message": f"Tài khoản '{name}' đang bận (đang tạo video hoặc đang có phiên mở khác)"
+        }))
+        await ws.close(code=1008)
+        return
+
+    async with lock:
+        from patchright.async_api import async_playwright
+        from browser import launch_account_context
+
+        await ws.send_text(json.dumps({"type": "status", "text": f"Đang khởi động trình duyệt cho '{name}'..."}))
+
+        async with async_playwright() as p:
+            try:
+                # Chromium persistent context with extension
+                ctx = await launch_account_context(p, name, headless=config.HEADLESS, use_extension=True)
+            except Exception as e:
+                await ws.send_text(json.dumps({"type": "error", "message": f"Lỗi khởi động trình duyệt: {e}"}))
+                await ws.close()
+                return
+
+            ACTIVE_USER_BROWSERS[name] = {"context": ctx, "ws": ws}
+
+            cdp = None
+            current_page = None
+            notified_downloads = set()
+
+            try:
+                current_page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+                await current_page.set_viewport_size({"width": 1280, "height": 950})
+
+                cdp = await ctx.new_cdp_session(current_page)
+                try:
+                    win_info = await cdp.send("Browser.getWindowForTarget")
+                    if win_info and "windowId" in win_info:
+                        await cdp.send("Browser.setWindowBounds", {
+                            "windowId": win_info["windowId"],
+                            "bounds": {"width": 1296, "height": 1080, "windowState": "normal"}
+                        })
+                except Exception:
+                    pass
+
+                if not current_page.url or current_page.url == "about:blank":
+                    try:
+                        await current_page.goto("https://www.dola.com/chat", wait_until="domcontentloaded", timeout=45000)
+                    except Exception:
+                        pass
+
+                async def on_screencast_frame(params):
+                    session_id = params.get("sessionId")
+                    if not session_id or not cdp:
+                        return
+                    try:
+                        raw_b64 = params.get("data", "")
+                        if raw_b64:
+                            jpeg_bytes = base64.b64decode(raw_b64)
+                            await ws.send_bytes(jpeg_bytes)
+                    except Exception:
+                        pass
+                    finally:
+                        try:
+                            if cdp:
+                                await cdp.send("Page.screencastFrameAck", {"sessionId": session_id})
+                        except Exception:
+                            pass
+
+                cdp.on("Page.screencastFrame", on_screencast_frame)
+                await cdp.send("Page.startScreencast", {
+                    "format": "jpeg",
+                    "quality": 65,
+                    "maxWidth": 1280,
+                    "maxHeight": 1050,
+                    "everyNthFrame": 1
+                })
+
+                async def send_tabs_update():
+                    try:
+                        tabs = []
+                        for idx, pg in enumerate(ctx.pages):
+                            if not pg.is_closed():
+                                try:
+                                    t = await pg.title()
+                                except Exception:
+                                    t = "Tab"
+                                tabs.append({"id": idx, "url": pg.url, "title": t or "Tab"})
+                        active_idx = 0
+                        for idx, pg in enumerate(ctx.pages):
+                            if pg == current_page:
+                                active_idx = idx
+                                break
+                        await ws.send_text(json.dumps({
+                            "type": "tabs",
+                            "tabs": tabs,
+                            "active": active_idx,
+                            "url": current_page.url,
+                            "title": await current_page.title()
+                        }))
+                    except Exception:
+                        pass
+
+                async def switch_to_page(target_page):
+                    nonlocal current_page, cdp
+                    if target_page == current_page or target_page.is_closed():
+                        return
+                    try:
+                        if cdp:
+                            await cdp.send("Page.stopScreencast")
+                    except Exception:
+                        pass
+                    current_page = target_page
+                    try:
+                        await current_page.set_viewport_size({"width": 1280, "height": 950})
+                    except Exception:
+                        pass
+                    cdp = await ctx.new_cdp_session(current_page)
+                    try:
+                        win_info = await cdp.send("Browser.getWindowForTarget")
+                        if win_info and "windowId" in win_info:
+                            await cdp.send("Browser.setWindowBounds", {
+                                "windowId": win_info["windowId"],
+                                "bounds": {"width": 1296, "height": 1080, "windowState": "normal"}
+                            })
+                    except Exception:
+                        pass
+                    cdp.on("Page.screencastFrame", on_screencast_frame)
+                    await cdp.send("Page.startScreencast", {
+                        "format": "jpeg",
+                        "quality": 65,
+                        "maxWidth": 1280,
+                        "maxHeight": 1050,
+                        "everyNthFrame": 1
+                    })
+                    await send_tabs_update()
+
+                async def notify_client_download(filename: str, f_path: Path):
+                    if filename in notified_downloads:
+                        return
+                    notified_downloads.add(filename)
+                    size = f_path.stat().st_size if f_path.exists() else 0
+                    print(f"[LiveStream Download Relay] -> Client: {filename} ({size} bytes)", flush=True)
+                    try:
+                        await ws.send_text(json.dumps({
+                            "type": "download",
+                            "filename": filename,
+                            "url": f"/api/download_video/{filename}",
+                            "size": size
+                        }))
+                    except Exception as ex:
+                        print(f"[LiveStream WS send error]: {ex}", flush=True)
+
+                async def handle_download(dl):
+                    try:
+                        suggested = dl.suggested_filename or f"video_{int(time.time())}.mp4"
+                        if not re.search(r"\.(mp4|webm|mkv|mov|avi|jpg|jpeg|png)$", suggested, re.I):
+                            suggested += ".mp4"
+                        safe_name = f"{name}_{int(time.time())}_{suggested}"
+                        dest_path = Path(config.DOWNLOAD_DIR) / safe_name
+                        await dl.save_as(str(dest_path))
+                        await notify_client_download(safe_name, dest_path)
+                    except Exception as ex:
+                        print(f"[LiveStream dl error]: {ex}", flush=True)
+
+                def setup_page_listeners(pg):
+                    pg.on("framenavigated", lambda frame: asyncio.create_task(send_tabs_update()) if frame == pg.main_frame else None)
+                    pg.on("download", lambda dl: asyncio.create_task(handle_download(dl)))
+
+                setup_page_listeners(current_page)
+
+                async def on_new_page(new_pg):
+                    setup_page_listeners(new_pg)
+                    await asyncio.sleep(0.5)
+                    await switch_to_page(new_pg)
+
+                ctx.on("page", lambda p: asyncio.create_task(on_new_page(p)))
+
+                # Watch downloads folder for files written by Chrome extension or direct downloads
+                initial_files = {f.name for f in Path(config.DOWNLOAD_DIR).iterdir() if f.is_file()}
+
+                async def watch_downloads_loop():
+                    known = set(initial_files)
+                    while True:
+                        try:
+                            await asyncio.sleep(1.0)
+                            if not Path(config.DOWNLOAD_DIR).exists():
+                                continue
+                            for f in Path(config.DOWNLOAD_DIR).iterdir():
+                                if not f.is_file():
+                                    continue
+                                fname = f.name
+                                if fname in known or fname.endswith(".crdownload") or fname.startswith("."):
+                                    continue
+                                if f.suffix.lower() in [".mp4", ".webm", ".mkv", ".mov"]:
+                                    try:
+                                        s1 = f.stat().st_size
+                                        await asyncio.sleep(0.5)
+                                        s2 = f.stat().st_size
+                                        if s1 == s2 and s1 > 1000:
+                                            known.add(fname)
+                                            await notify_client_download(fname, f)
+                                    except Exception:
+                                        pass
+                        except asyncio.CancelledError:
+                            break
+                        except Exception:
+                            await asyncio.sleep(1.0)
+
+                watcher_task = asyncio.create_task(watch_downloads_loop())
+
+                await ws.send_text(json.dumps({
+                    "type": "connected",
+                    "account": name,
+                    "viewport": {"width": 1280, "height": 900},
+                    "url": current_page.url,
+                    "title": await current_page.title()
+                }))
+                await send_tabs_update()
+
+                while True:
+                    msg_text = await ws.receive_text()
+                    try:
+                        cmd = json.loads(msg_text)
+                    except Exception:
+                        continue
+
+                    ctype = cmd.get("type")
+                    if ctype == "mouse":
+                        mevent = cmd.get("event")
+                        x = int(cmd.get("x", 0))
+                        y = int(cmd.get("y", 0))
+                        btn = cmd.get("button", "left")
+                        try:
+                            if mevent == "move":
+                                await current_page.mouse.move(x, y)
+                            elif mevent == "down":
+                                await current_page.mouse.move(x, y)
+                                await current_page.mouse.down(button=btn)
+                            elif mevent == "up":
+                                await current_page.mouse.move(x, y)
+                                await current_page.mouse.up(button=btn)
+                            elif mevent == "click":
+                                count = cmd.get("clickCount", 1)
+                                await current_page.mouse.click(x, y, button=btn, click_count=count)
+                            elif mevent == "wheel":
+                                dx = int(cmd.get("deltaX", 0))
+                                dy = int(cmd.get("deltaY", 0))
+                                await current_page.mouse.move(x, y)
+                                await current_page.mouse.wheel(dx, dy)
+                        except Exception:
+                            pass
+                    elif ctype == "text":
+                        text_val = cmd.get("text", "")
+                        if text_val:
+                            try:
+                                await current_page.keyboard.insert_text(text_val)
+                            except Exception:
+                                pass
+                    elif ctype == "key_press" or ctype == "keyboard":
+                        key = cmd.get("key", "")
+                        ctrl = cmd.get("ctrl", False)
+                        meta = cmd.get("meta", False)
+                        shift = cmd.get("shift", False)
+                        alt = cmd.get("alt", False)
+                        kevent = cmd.get("event")
+                        if key:
+                            try:
+                                modifiers = []
+                                if ctrl: modifiers.append("Control")
+                                if meta: modifiers.append("Meta")
+                                if alt: modifiers.append("Alt")
+                                if shift: modifiers.append("Shift")
+                                if modifiers and len(key) == 1:
+                                    combo = "+".join(modifiers + [key.lower()])
+                                    await current_page.keyboard.press(combo)
+                                elif kevent == "down":
+                                    await current_page.keyboard.down(key)
+                                elif kevent == "up":
+                                    await current_page.keyboard.up(key)
+                                else:
+                                    await current_page.keyboard.press(key)
+                            except Exception:
+                                pass
+                    elif ctype == "navigate":
+                        nav_url = (cmd.get("url") or "").strip()
+                        if nav_url:
+                            if not (nav_url.startswith("http://") or nav_url.startswith("https://")):
+                                nav_url = "https://" + nav_url
+                            try:
+                                await current_page.goto(nav_url, wait_until="domcontentloaded", timeout=45000)
+                                await send_tabs_update()
+                            except Exception:
+                                pass
+                    elif ctype == "back":
+                        try:
+                            await current_page.go_back()
+                            await send_tabs_update()
+                        except Exception:
+                            pass
+                    elif ctype == "forward":
+                        try:
+                            await current_page.go_forward()
+                            await send_tabs_update()
+                        except Exception:
+                            pass
+                    elif ctype == "reload":
+                        try:
+                            await current_page.reload()
+                            await send_tabs_update()
+                        except Exception:
+                            pass
+                    elif ctype == "switch_tab":
+                        tab_id = int(cmd.get("index", 0))
+                        open_pgs = [p for p in ctx.pages if not p.is_closed()]
+                        if 0 <= tab_id < len(open_pgs):
+                            await switch_to_page(open_pgs[tab_id])
+                    elif ctype == "new_tab":
+                        new_tab_url = cmd.get("url") or "https://www.dola.com/chat"
+                        n_page = await ctx.new_page()
+                        setup_page_listeners(n_page)
+                        try:
+                            await n_page.goto(new_tab_url, wait_until="domcontentloaded")
+                        except Exception:
+                            pass
+                        await switch_to_page(n_page)
+                    elif ctype == "close_tab":
+                        tab_id = int(cmd.get("index", 0))
+                        open_pgs = [p for p in ctx.pages if not p.is_closed()]
+                        if len(open_pgs) > 1 and 0 <= tab_id < len(open_pgs):
+                            target = open_pgs[tab_id]
+                            await target.close()
+                            rem = [p for p in ctx.pages if not p.is_closed()]
+                            if rem:
+                                await switch_to_page(rem[0])
+                    elif ctype == "capture_video":
+                        try:
+                            urls = await current_page.evaluate("""() => {
+                                const list = [];
+                                document.querySelectorAll('video').forEach(v => {
+                                    if (v.src && v.src.startsWith('http')) list.push(v.src);
+                                    v.querySelectorAll('source').forEach(s => {
+                                        if (s.src && s.src.startsWith('http')) list.push(s.src);
+                                    });
+                                });
+                                document.querySelectorAll('a[href*=".mp4"], a[download]').forEach(a => {
+                                    if (a.href && a.href.startsWith('http')) list.push(a.href);
+                                });
+                                return Array.from(new Set(list));
+                            }""")
+                            if urls:
+                                from video_worker import _download
+                                dl_path = await _download(urls[-1], name)
+                                await notify_client_download(dl_path.name, dl_path)
+                            else:
+                                await ws.send_text(json.dumps({
+                                    "type": "status",
+                                    "text": "Không tìm thấy video nào trên trang hiện tại để tải."
+                                }))
+                        except Exception as ex:
+                            await ws.send_text(json.dumps({
+                                "type": "status",
+                                "text": f"Lỗi quét video: {ex}"
+                            }))
+                    elif ctype == "close":
+                        break
+            except WebSocketDisconnect:
+                print(f"[ws_browser] Client disconnected from {name}", flush=True)
+            except Exception as e:
+                print(f"[ws_browser] Error in session {name}: {e}", flush=True)
+            finally:
+                if 'watcher_task' in locals() and not watcher_task.done():
+                    watcher_task.cancel()
+                ACTIVE_USER_BROWSERS.pop(name, None)
+                try:
+                    if 'cdp' in locals() and cdp:
+                        await cdp.send("Page.stopScreencast")
+                except Exception:
+                    pass
+                try:
+                    await ctx.close()
+                except Exception:
+                    pass
+                try:
+                    await pool.verify_account(name)
                 except Exception:
                     pass
 
@@ -571,6 +1086,12 @@ async def admin_account_close_browser(name: str, x_admin_key: str | None = Heade
     _admin_auth(x_admin_key)
     info = ACTIVE_USER_BROWSERS.pop(name, None)
     if info:
+        ws = info.get("ws")
+        if ws:
+            try:
+                await ws.close()
+            except Exception:
+                pass
         ctx = info.get("context")
         if ctx:
             try:
@@ -682,9 +1203,13 @@ async def admin_jobs(x_admin_key: str | None = Header(default=None)):
 
 
 @app.get("/api/admin/tasks")
-async def admin_tasks(limit: int = 50, x_admin_key: str | None = Header(default=None)):
+async def admin_tasks(request: Request, limit: int = 50, x_admin_key: str | None = Header(default=None)):
     _admin_auth(x_admin_key)
-    return {"tasks": store.recent_tasks(min(max(limit, 1), 200))}
+    tasks = store.recent_tasks(min(max(limit, 1), 200))
+    for t in tasks:
+        if t.get("video_url"):
+            t["video_url"] = resolve_video_url(t["video_url"], request)
+    return {"tasks": tasks}
 
 
 @app.post("/api/admin/tasks/{task_id}/cancel")

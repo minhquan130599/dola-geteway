@@ -417,7 +417,12 @@ class BrowserPool:
                             except Exception:
                                 pass
                         try:
-                            def on_balance_cb(balance, source=""):
+                            poll_balance_reported = False
+
+                            def on_balance_cb(balance, source="", is_poll=False):
+                                nonlocal poll_balance_reported
+                                if is_poll:
+                                    poll_balance_reported = True
                                 self._set_credit_balance(account, balance, source)
 
                             result = await generate_video(
@@ -426,7 +431,8 @@ class BrowserPool:
                                 on_balance=on_balance_cb, reference_image_paths=reference_image_paths,
                                 check_cancelled=check_cancelled)
                             self._claim(account)
-                            self.deduct_credits(account, req_points)
+                            if not poll_balance_reported:
+                                self.deduct_credits(account, req_points)
                             self._conn.execute(
                                 "UPDATE accounts_meta SET last_used_at=? WHERE name=?",
                                 (time.time(), account))

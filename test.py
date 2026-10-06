@@ -32,7 +32,7 @@ cookies = {
     'biz_trace_id': 'e9f0a6b1',
     'IsDouyinActive': 'true',
     'home_can_add_dy_2_desktop': '%220%22',
-}
+} 
 
 headers = {
     'accept': 'application/json, text/plain, */*',

@@ -247,28 +247,36 @@ async def attach_reference_images(page, image_paths: list[str]) -> None:
     try:
         await file_input.set_input_files(image_paths)
         expected = len(image_paths)
-        deadline = time.time() + max(60, expected * 20)
+        deadline = time.time() + max(120, expected * 45)
         while time.time() < deadline:
             prepare_count = sum("/alice/resource/prepare_upload" in url and 200 <= status < 300
                                 for status, url in events)
             tos_count = sum(("/upload/v1/" in url or ("tos" in url and "upload" in url)) and 200 <= status < 300
                             for status, url in events)
 
-            # Check UI thumbnails and upload progress spinners inside chat input
+            # Check UI thumbnails across the page and input area
             ui_state = await page.evaluate(r"""() => {
-                const area = document.querySelector('textarea, [contenteditable="true"]')?.closest('[class*="chat"], [class*="input"], [class*="panel"], form') || document.body;
-                const imgs = Array.from(area.querySelectorAll('img')).filter(im => {
+                const thumbImgs = Array.from(document.querySelectorAll('img[class*="thumb"], [class*="thumb"] img, img.thumb-image-mKcTum, [class*="preview"] img')).filter(im => {
+                    const r = im.getBoundingClientRect();
+                    return r.width >= 20 && r.height >= 20;
+                });
+                const allCandidateImgs = thumbImgs.length > 0 ? thumbImgs : Array.from(document.querySelectorAll('img')).filter(im => {
                     const r = im.getBoundingClientRect();
                     return r.width >= 24 && r.height >= 24 && (im.src.startsWith('blob:') || im.src.includes('tos') || im.src.includes('ibyteimg') || im.src.includes('upload'));
                 });
-                const spinners = area.querySelectorAll('[class*="loading"], [class*="spin"], [role="progressbar"]');
-                return { count: imgs.length, hasSpinner: spinners.length > 0 };
+                const spinners = document.querySelectorAll('[class*="loading"], [class*="spin"], [role="progressbar"], [class*="progress"]');
+                return { count: allCandidateImgs.length, hasSpinner: spinners.length > 0 };
             }""")
 
-            # TOS upload has completed for all expected images (each PUT /upload/v1/ succeeded)
-            # OR UI has rendered all expected thumbnails without active spinner and at least one upload completed
-            if tos_count >= expected or (ui_state["count"] >= expected and not ui_state["hasSpinner"] and tos_count > 0):
-                await page.wait_for_timeout(1000)
+            # TOS upload has completed for all expected images
+            # OR UI has rendered all expected thumbnails without active spinner
+            # OR majority of images are uploaded and thumbnails are rendered without spinner
+            if (
+                tos_count >= expected
+                or (ui_state["count"] >= expected and not ui_state["hasSpinner"])
+                or (tos_count >= max(1, expected - 1) and ui_state["count"] >= expected and not ui_state["hasSpinner"])
+            ):
+                await page.wait_for_timeout(1500)
                 print(f"[upload] Reference images uploaded: {expected} image(s) (tos={tos_count}/{expected}, prepare={prepare_count}, thumbs={ui_state['count']})", flush=True)
                 return
             await page.wait_for_timeout(250)
@@ -428,7 +436,10 @@ async def poll_conversation(account: str, page, context, conversation_id: str,
         for text in poll.get("texts", []):
             balance, _, source = _parse_balance_texts([text])
             if balance is not None and on_balance:
-                on_balance(balance, source)
+                try:
+                    on_balance(balance, source, is_poll=True)
+                except TypeError:
+                    on_balance(balance, source)
             if DAILY_LIMIT_PATTERN.search(text):
                 raise AccountLimitedError(f"Account daily limit reached: {text[:120]}")
             if CREDIT_FAIL_PATTERN.search(text) and not PROCEEDING_PATTERN.search(text):
@@ -529,7 +540,10 @@ async def generate_video(account: str, prompt: str, ratio: str = None,
             print(f"[{account}] Mode requirement: {req_points} credit point(s) (model={model_key}, ratio={ratio}, duration={duration}s)", flush=True)
             preflight = await _preflight_balance(page, ms_token, fp, req_points)
             if preflight.get("balance") is not None and on_balance:
-                on_balance(preflight["balance"], preflight.get("source", ""))
+                try:
+                    on_balance(preflight["balance"], preflight.get("source", ""), is_poll=False)
+                except TypeError:
+                    on_balance(preflight["balance"], preflight.get("source", ""))
 
             # ---- UI Submission ----
             await activate_video_mode(page)
@@ -638,7 +652,12 @@ async def generate_video(account: str, prompt: str, ratio: str = None,
                     print(f"  (Failed to set duration, using default: {str(e)[:80]})", flush=True)
             box = await page.query_selector("textarea") or await page.query_selector('[contenteditable="true"]')
             await box.click()
-            await page.keyboard.type(prompt, delay=100)
+            await page.wait_for_timeout(200)
+            try:
+                # Fast insertion for long prompts without 3-minute typing delay
+                await page.keyboard.insert_text(prompt)
+            except Exception:
+                await page.keyboard.type(prompt, delay=10)
             await page.wait_for_timeout(600)
             await page.keyboard.press("Enter")
             await page.wait_for_timeout(600)

@@ -17,7 +17,7 @@ header{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-
 nav{display:flex;gap:4px;padding:12px 20px 0;border-bottom:1px solid var(--line);background:var(--bg)}
 nav button{border:none;background:none;padding:10px 16px;font-size:14px;color:var(--sub);cursor:pointer;border-bottom:2px solid transparent}
 nav button.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
-main{padding:20px;max-width:1180px;margin:0 auto}
+main{padding:20px;max-width:1180px;width:100%;margin:0 auto}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
 .card h3{font-size:14px;margin-bottom:14px;font-weight:600}
 .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
@@ -96,26 +96,80 @@ td .prompt{display:block;max-width:340px;overflow:hidden;text-overflow:ellipsis;
 .create-result{margin-top:18px;padding-top:18px;border-top:1px solid var(--line)}
 .create-result video{display:block;width:100%;max-height:520px;background:#111;border-radius:9px;margin-top:10px}
 @media(max-width:760px){.create-layout{grid-template-columns:1fr}.options-grid{grid-template-columns:1fr 1fr}.create-side{display:none}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.stream-box{transition:all .2s ease}
+
+/* Login Screen Styles */
+#loginScreen{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 10% 20%, #ecfdf5 0%, #f8fafc 40%, #e2e8f0 100%);padding:20px}
+.login-card{background:#ffffff;border:1px solid #e2e8f0;border-radius:18px;padding:36px 32px;width:100%;max-width:400px;box-shadow:0 20px 45px -10px rgba(15,23,42,0.12),0 0 0 1px rgba(16,185,129,0.08);display:flex;flex-direction:column;gap:18px}
+.login-header{text-align:center}
+.login-logo{display:inline-flex;align-items:center;justify-content:center;width:52px;height:52px;border-radius:14px;background:linear-gradient(135deg, #10b981 0%, #059669 100%);color:#ffffff;font-size:26px;margin-bottom:12px;box-shadow:0 8px 18px -4px rgba(16,185,129,0.4)}
+.login-header h2{font-size:20px;font-weight:700;color:#0f172a;margin-bottom:4px}
+.login-header p{font-size:13px;color:#64748b}
+.login-field{display:flex;flex-direction:column;gap:6px}
+.login-field label{font-size:12px;font-weight:600;color:#334155;text-transform:uppercase;letter-spacing:0.4px}
+.login-input-wrap{position:relative;display:flex;align-items:center}
+.login-input-wrap .icon{position:absolute;left:12px;color:#94a3b8;font-size:15px;pointer-events:none}
+.login-input-wrap input{width:100%;padding:11px 12px 11px 36px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px;outline:none;transition:all 0.2s ease;background:#f8fafc;color:#0f172a}
+.login-input-wrap input:focus{border-color:#10b981;background:#ffffff;box-shadow:0 0 0 3px rgba(16,185,129,0.15)}
+.login-toggle-pw{position:absolute;right:10px;background:none;border:none;cursor:pointer;color:#94a3b8;font-size:14px;padding:4px}
+.login-toggle-pw:hover{color:#334155}
+.login-alert{background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;padding:10px 12px;border-radius:8px;font-size:13px;display:none;line-height:1.4}
+.login-btn{width:100%;padding:12px;background:linear-gradient(135deg, #10b981 0%, #059669 100%);color:#ffffff;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;transition:all 0.2s ease;box-shadow:0 4px 12px rgba(16,185,129,0.25);margin-top:4px}
+.login-btn:hover{background:linear-gradient(135deg, #059669 0%, #047857 100%);transform:translateY(-1px);box-shadow:0 6px 16px rgba(16,185,129,0.35)}
+.login-btn:active{transform:translateY(0)}
+.login-btn:disabled{opacity:0.6;cursor:not-allowed;transform:none}
+.login-footer-tip{text-align:center;font-size:11px;color:#94a3b8}
+#appLayout{display:none;width:100%;min-height:100vh}
 </style>
 </head>
 <body>
-<div id="loginMask" class="mask" style="display:none">
-  <div class="box">
-    <h2>Admin Dashboard Login</h2>
-    <input id="loginKey" type="password" placeholder="Admin Password" onkeydown="if(event.key==='Enter')submitLogin()">
-    <div class="err" id="loginErr">Incorrect password</div>
-    <button class="btn btn-p" onclick="submitLogin()">Login</button>
+<div id="loginScreen">
+  <div class="login-card">
+    <div class="login-header">
+      <div class="login-logo">🎬</div>
+      <h2>Dola Pool Gateway</h2>
+      <p>Đăng nhập hệ thống quản trị & API Gateway</p>
+    </div>
+
+    <div id="loginAlert" class="login-alert"></div>
+
+    <div class="login-field">
+      <label for="loginUser">Tài khoản</label>
+      <div class="login-input-wrap">
+        <span class="icon">👤</span>
+        <input id="loginUser" type="text" placeholder="admin" value="admin" autocomplete="username" onkeydown="if(event.key==='Enter')q('#loginPass').focus()">
+      </div>
+    </div>
+
+    <div class="login-field">
+      <label for="loginPass">Mật khẩu</label>
+      <div class="login-input-wrap">
+        <span class="icon">🔒</span>
+        <input id="loginPass" type="password" placeholder="Nhập mật khẩu admin" autocomplete="current-password" onkeydown="if(event.key==='Enter')submitLogin()">
+        <button type="button" class="login-toggle-pw" onclick="togglePassVisibility()" title="Ẩn/Hiện mật khẩu">👁️</button>
+      </div>
+    </div>
+
+    <button id="loginBtn" class="login-btn" onclick="submitLogin()">Đăng nhập</button>
+
+    <div class="login-footer-tip">
+      Xác thực bảo mật JWT Token · Dola Render Gateway
+    </div>
   </div>
 </div>
 
+<div id="appLayout">
 <header>
   <div class="brand"><span class="dot"></span>Dola Pool Dashboard</div>
   <div class="head-r">
+    <span class="badge" style="background:#e6f7f0;color:#00945f;font-weight:600;display:inline-flex;align-items:center;gap:4px">👤 <span id="adminUserBadge">admin</span></span>
     <label style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;margin-right:8px"><input type="checkbox" id="headlessCk" checked onchange="toggleHeadless(this.checked)">Chạy ẩn (Headless)</label>
     <label><input type="checkbox" id="autoCk" checked onchange="autoRefresh=this.checked">Auto Refresh</label>
     <span id="lastUpdate"></span>
     <button class="btn" onclick="refresh()">Refresh</button>
-    <button class="btn" onclick="logout()" title="Logout">Logout</button>
+    <button class="btn btn-danger" onclick="logout()" title="Đăng xuất khỏi hệ thống">🚪 Đăng xuất</button>
   </div>
 </header>
 
@@ -230,37 +284,187 @@ td .prompt{display:block;max-width:340px;overflow:hidden;text-overflow:ellipsis;
   </div>
 </div>
 
+<div id="streamModal" class="dialog" style="display:none;z-index:200;background:rgba(15,23,42,0.85);backdrop-filter:blur(8px);padding:10px">
+  <div class="stream-box" style="background:#0f172a;color:#f8fafc;border:1px solid #334155;border-radius:12px;width:98vw;max-width:1600px;height:96vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 25px 50px -12px rgba(0,0,0,0.5)">
+    <!-- Header / Nav bar -->
+    <div style="background:#1e293b;border-bottom:1px solid #334155;padding:8px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:10px;min-width:0">
+        <span class="badge" style="background:#059669;color:#fff;font-weight:600;padding:4px 8px" id="streamAccountBadge">acc1</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#10b981;font-weight:600"><span style="width:8px;height:8px;border-radius:50%;background:#10b981;box-shadow:0 0 8px #10b981;animation:pulse 1.5s infinite"></span>LIVE STREAM</span>
+        <div id="streamTabs" style="display:flex;gap:4px;overflow-x:auto;max-width:320px"></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <button class="btn" style="padding:4px 9px;background:#334155;border-color:#475569;color:#fff" onclick="sendStreamCmd({type:'back'})" title="Quay lại (Back)">◀</button>
+        <button class="btn" style="padding:4px 9px;background:#334155;border-color:#475569;color:#fff" onclick="sendStreamCmd({type:'forward'})" title="Tiếp theo (Forward)">▶</button>
+        <button class="btn" style="padding:4px 9px;background:#334155;border-color:#475569;color:#fff" onclick="sendStreamCmd({type:'reload'})" title="Tải lại trang (Reload)">↻</button>
+        <input id="streamUrlInput" style="background:#0f172a;border:1px solid #475569;color:#f8fafc;padding:5px 10px;border-radius:6px;width:250px;font-size:12px" placeholder="https://..." onkeydown="if(event.key==='Enter')navigateStreamUrl()">
+        <button class="btn btn-p" style="padding:4px 10px;font-size:12px" onclick="navigateStreamUrl()">Đi tới</button>
+        <button class="btn" style="padding:4px 10px;font-size:12px;background:#334155;border-color:#475569;color:#fff" onclick="sendStreamCmd({type:'navigate',url:'https://www.dola.com/chat'})" title="Mở Dola Chat">💬 Chat</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="btn" style="padding:4px 10px;font-size:12px;background:#0369a1;border-color:#0284c7;color:#fff" onclick="sendStreamCmd({type:'capture_video'})" title="Quét tìm và tải video hiện tại trên trang">📥 Tải video trang</button>
+        <button class="btn" style="padding:4px 10px;font-size:12px;background:#334155;border-color:#475569;color:#fff" onclick="toggleStreamFullscreen()" title="Toàn màn hình">⛶</button>
+        <button class="btn btn-danger" style="padding:4px 12px;font-size:12px;font-weight:600" onclick="closeStreamModal()">✕ Đóng Browser</button>
+      </div>
+    </div>
+
+    <!-- Sub-bar: Vietnamese / Prompt Paste Helper + Notification toast -->
+    <div style="background:#0f172a;border-bottom:1px solid #1e293b;padding:6px 14px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px">
+      <div style="display:flex;align-items:center;gap:8px;flex:1">
+        <span style="color:#94a3b8;white-space:nowrap">⌨️ Gõ chữ / Paste:</span>
+        <input id="streamTextInput" style="background:#1e293b;border:1px solid #334155;color:#f8fafc;padding:5px 10px;border-radius:6px;flex:1;font-size:12px" placeholder="Nhập prompt tiếng Việt hoặc dán text vào đây rồi bấm Gửi chữ (hoặc gõ trực tiếp trên màn hình)..." onkeydown="if(event.key==='Enter')sendStreamTextInput()">
+        <button class="btn btn-p" style="padding:4px 12px;font-size:12px" onclick="sendStreamTextInput()">Gửi chữ</button>
+        <button class="btn" style="padding:4px 10px;font-size:12px;background:#334155;border-color:#475569;color:#fff" onclick="sendStreamEnter()" title="Gửi phím Enter">⏎ Enter</button>
+      </div>
+      <div id="streamDownloadBanner" style="display:none;background:#065f46;color:#a7f3d0;padding:3px 10px;border-radius:6px;font-weight:500;align-items:center;gap:6px">
+        <span>🎉 Đang tải video về máy...</span>
+      </div>
+    </div>
+
+    <!-- Screen / Canvas view -->
+    <div id="streamContainer" style="flex:1;position:relative;background:#020617;display:flex;align-items:center;justify-content:center;overflow:hidden;outline:none;padding:4px">
+      <div id="streamLoading" style="position:absolute;inset:0;background:rgba(2,6,23,0.9);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;z-index:10">
+        <div style="width:36px;height:36px;border:3px solid #334155;border-top-color:#10b981;border-radius:50%;animation:spin 1s linear infinite"></div>
+        <div id="streamLoadingText" style="color:#94a3b8;font-size:13px">Đang kết nối Live Stream...</div>
+      </div>
+      <canvas id="streamCanvas" tabindex="0" style="max-width:100%;max-height:100%;width:auto;height:auto;aspect-ratio:1280/900;border-radius:6px;box-shadow:0 10px 30px rgba(0,0,0,0.6);outline:none;cursor:default"></canvas>
+    </div>
+
+    <!-- Footer bar -->
+    <div style="background:#1e293b;border-top:1px solid #334155;padding:6px 14px;display:flex;align-items:center;justify-content:space-between;font-size:12px;color:#94a3b8">
+      <div>💡 <b>Tương tác từ xa:</b> Click chuột, cuộn lăn chuột hoặc gõ phím trực tiếp trên khung màn hình. <b>Khi bấm tải video trong stream, video sẽ tự động tải về máy client của bạn!</b></div>
+      <div style="display:flex;gap:14px;align-items:center">
+        <span id="streamRes">1280x900</span>
+        <span id="streamDlCount" style="color:#34d399;font-weight:600">📥 0 video đã tải</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div> <!-- end #appLayout -->
+
 <script>
-const LS_KEY='dola_admin_key';
-let adminKey=localStorage.getItem(LS_KEY)||'';
-let autoRefresh=true, curTab='dash', timer=null;
-let createMode='text', createPollToken=0;
+const JWT_KEY = 'dola_admin_jwt';
+const USER_KEY = 'dola_admin_user';
+let jwtToken = localStorage.getItem(JWT_KEY) || '';
+let currentAdminUser = localStorage.getItem(USER_KEY) || 'admin';
+let autoRefresh = true, curTab = 'dash', timer = null;
+let createMode = 'text', createPollToken = 0;
 
 function q(s){return document.querySelector(s);}
-function show(id){document.getElementById(id).style.display='flex';}
-function hide(id){document.getElementById(id).style.display='none';}
+function show(id){
+  const el = document.getElementById(id);
+  if(!el) return;
+  if(id === 'loginScreen' || id === 'dlg' || id === 'streamModal' || id === 'videoModal') {
+    el.style.display = 'flex';
+  } else {
+    el.style.display = 'block';
+  }
+}
+function hide(id){
+  const el = document.getElementById(id);
+  if(el) el.style.display = 'none';
+}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function fmt(ts){if(!ts)return '-';const d=new Date(ts*1000);const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;}
 function fmtHM(ts){const d=new Date(ts*1000);const p=n=>String(n).padStart(2,'0');return `${p(d.getHours())}:${p(d.getMinutes())}`;}
 
-async function api(path,opts={}){
-  const r=await fetch(path,{method:opts.method||'GET',headers:{'Content-Type':'application/json','X-Admin-Key':adminKey,...(opts.headers||{})},body:opts.body?JSON.stringify(opts.body):undefined});
-  if(r.status===401){showLogin();throw new Error('unauthorized');}
-  const text=await r.text();
-  let data={};try{data=text?JSON.parse(text):{};}catch(e){}
-  if(!r.ok)throw new Error(data.detail||(`${r.status} ${text.slice(0,120)}`));
+function togglePassVisibility(){
+  const input = q('#loginPass');
+  input.type = input.type === 'password' ? 'text' : 'password';
+}
+
+async function api(path, opts = {}){
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(opts.headers || {})
+  };
+  if(jwtToken){
+    headers['Authorization'] = 'Bearer ' + jwtToken;
+    headers['X-Admin-Key'] = jwtToken;
+  }
+  const r = await fetch(path, {
+    method: opts.method || 'GET',
+    headers,
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  });
+  if(r.status === 401){
+    showLogin('Phiên đăng nhập đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại.');
+    throw new Error('unauthorized');
+  }
+  const text = await r.text();
+  let data = {};
+  try{data = text ? JSON.parse(text) : {};}catch(e){}
+  if(!r.ok) throw new Error(data.detail || (`${r.status} ${text.slice(0, 120)}`));
   return data;
 }
 
-function showLogin(){hide('dlg');show('loginMask');q('#loginErr').style.display='none';}
-async function submitLogin(){
-  const key=q('#loginKey').value;
-  try{await api('/api/admin/login',{method:'POST',body:{key}});}
-  catch(e){q('#loginErr').style.display='block';return;}
-  adminKey=key;localStorage.setItem(LS_KEY,key);
-  hide('loginMask');refresh();
+function showLogin(msg){
+  if(timer){ clearInterval(timer); timer = null; }
+  hide('appLayout');
+  show('loginScreen');
+  const alertEl = q('#loginAlert');
+  if(msg){
+    alertEl.textContent = msg;
+    alertEl.style.display = 'block';
+  } else {
+    alertEl.style.display = 'none';
+  }
+  q('#loginPass').value = '';
+  setTimeout(() => {
+    if(!q('#loginUser').value) q('#loginUser').focus();
+    else q('#loginPass').focus();
+  }, 100);
 }
-function logout(){adminKey='';localStorage.removeItem(LS_KEY);showLogin();}
+
+async function submitLogin(){
+  const user = q('#loginUser').value.trim();
+  const pass = q('#loginPass').value;
+  const alertEl = q('#loginAlert');
+  const btn = q('#loginBtn');
+  if(!user || !pass){
+    alertEl.textContent = 'Vui lòng nhập đầy đủ tài khoản và mật khẩu.';
+    alertEl.style.display = 'block';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Đang xác thực...';
+  alertEl.style.display = 'none';
+  try {
+    const resp = await fetch('/api/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: user, password: pass })
+    });
+    const data = await resp.json().catch(() => ({}));
+    if(!resp.ok){
+      throw new Error(data.detail || 'Sai tài khoản hoặc mật khẩu.');
+    }
+    jwtToken = data.token;
+    currentAdminUser = data.username || user;
+    localStorage.setItem(JWT_KEY, jwtToken);
+    localStorage.setItem(USER_KEY, currentAdminUser);
+    if(q('#adminUserBadge')) q('#adminUserBadge').textContent = currentAdminUser;
+    hide('loginScreen');
+    show('appLayout');
+    loadConfig();
+    refresh();
+    if(!timer) timer = setInterval(()=>{if(autoRefresh)refresh();}, 4000);
+  } catch(err){
+    alertEl.textContent = err.message || 'Đăng nhập không thành công.';
+    alertEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Đăng nhập';
+  }
+}
+
+function logout(){
+  if(timer){ clearInterval(timer); timer = null; }
+  jwtToken = '';
+  localStorage.removeItem(JWT_KEY);
+  localStorage.removeItem(USER_KEY);
+  showLogin('Bạn đã đăng xuất an toàn.');
+}
 
 function switchTab(t){
   curTab=t;
@@ -342,14 +546,24 @@ async function submitDashboardVideo(){
   }
 }
 
+function resolveVideoUrl(url){
+  if(!url) return '';
+  if(url.includes('/videos/')){
+    const filename = url.split('/videos/').pop();
+    return window.location.origin + '/videos/' + filename;
+  }
+  return url;
+}
+
 async function trackDashboardVideo(taskId){
   for(let i=0;i<600;i++){
     await new Promise(resolve=>setTimeout(resolve,4000));
     try{
       const task=await api('/api/admin/videos/'+encodeURIComponent(taskId));
       if(task.status==='completed'&&task.video_url){
-        q('#createVideoEl').src=task.video_url;
-        q('#createVideoLink').href=task.video_url;
+        const vUrl = resolveVideoUrl(task.video_url);
+        q('#createVideoEl').src=vUrl;
+        q('#createVideoLink').href=vUrl;
         q('#createResult').style.display='block';
         return;
       }
@@ -359,7 +573,7 @@ async function trackDashboardVideo(taskId){
 }
 
 async function refresh(){
-  if(q('#loginMask').style.display!=='none')return;
+  if(q('#loginScreen') && q('#loginScreen').style.display !== 'none') return;
   q('#lastUpdate').textContent='Updated at '+new Date().toLocaleTimeString();
   try{
     if(curTab==='dash')await loadDash();
@@ -436,8 +650,8 @@ async function loadAccounts(){
       : `<span class="tiny" style="color:#94a3b8">Chưa check</span>`;
     const rem = pts + `<div class="tiny" style="color:#64748b">${x.used_today || 0} video hôm nay</div>`;
     const browserBtn = x.browser_open
-      ? `<button class="btn btn-danger" style="margin-right:6px" onclick="closeBrowser('${x.name}',this)">Đóng Browser</button>`
-      : `<button class="btn" style="margin-right:6px;background:#f0fdf4;border-color:#86efac;color:#166534" onclick="openBrowser('${x.name}',this)" title="Mở profile Chrome này lên màn hình">🌐 Mở Browser</button>`;
+      ? `<button class="btn btn-p" style="margin-right:6px;background:#0284c7;border-color:#0284c7" onclick="openLiveBrowser('${x.name}')" title="Xem phiên stream đang mở">📺 Xem Stream</button><button class="btn btn-danger" style="margin-right:6px" onclick="closeBrowser('${x.name}',this)">Đóng</button>`
+      : `<button class="btn" style="margin-right:6px;background:#f0fdf4;border-color:#86efac;color:#166534" onclick="openLiveBrowser('${x.name}')" title="Mở live stream tương tác từ xa trực tiếp trên Web">🌐 Mở Browser (Live Stream)</button>`;
     const proxyCell = x.proxy
       ? `<div style="display:flex;align-items:center;gap:6px">`
         + `<span class="tiny" style="font-family:monospace;background:#f1f5f9;padding:2px 6px;border-radius:4px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block" title="${esc(x.proxy)}">${esc(x.proxy)}</span>`
@@ -492,10 +706,367 @@ async function submitEditProxy(name, forcedValue){
   refresh();
 }
 
+let streamWs = null;
+let streamAccount = '';
+let streamCanvas = null;
+let streamCtx = null;
+let streamDlCount = 0;
+let lastMouseMove = 0;
+
+function openLiveBrowser(account){
+  streamAccount = account;
+  streamDlCount = 0;
+  q('#streamAccountBadge').textContent = account;
+  q('#streamLoading').style.display = 'flex';
+  q('#streamLoadingText').textContent = `Đang kết nối Live Stream cho tài khoản ${account}...`;
+  q('#streamUrlInput').value = 'https://www.dola.com/chat';
+  q('#streamDownloadBanner').style.display = 'none';
+  q('#streamDlCount').textContent = '📥 0 video đã tải';
+  q('#streamTabs').innerHTML = '';
+  
+  show('streamModal');
+  initStreamCanvas();
+  connectStreamWs(account);
+}
+
+let isMouseDown = false;
+
+function initStreamCanvas(){
+  streamCanvas = q('#streamCanvas');
+  streamCtx = streamCanvas.getContext('2d');
+  streamCanvas.width = 1280;
+  streamCanvas.height = 900;
+  streamCanvas.style.aspectRatio = '1280 / 900';
+
+  streamCtx.fillStyle = '#0f172a';
+  streamCtx.fillRect(0, 0, 1280, 900);
+
+  streamCanvas.onmousemove = (e) => {
+    const now = Date.now();
+    const interval = isMouseDown ? 35 : 80;
+    if (now - lastMouseMove < interval) return;
+    lastMouseMove = now;
+    const coords = getStreamCoords(e);
+    sendStreamCmd({ type: 'mouse', event: 'move', x: coords.x, y: coords.y });
+  };
+
+  streamCanvas.onmousedown = (e) => {
+    streamCanvas.focus();
+    isMouseDown = true;
+    const coords = getStreamCoords(e);
+    const btn = e.button === 2 ? 'right' : (e.button === 1 ? 'middle' : 'left');
+    sendStreamCmd({ type: 'mouse', event: 'down', button: btn, x: coords.x, y: coords.y });
+  };
+
+  streamCanvas.onmouseup = (e) => {
+    isMouseDown = false;
+    const coords = getStreamCoords(e);
+    const btn = e.button === 2 ? 'right' : (e.button === 1 ? 'middle' : 'left');
+    sendStreamCmd({ type: 'mouse', event: 'up', button: btn, x: coords.x, y: coords.y });
+  };
+
+  streamCanvas.ondblclick = (e) => {
+    const coords = getStreamCoords(e);
+    sendStreamCmd({ type: 'mouse', event: 'click', button: 'left', clickCount: 2, x: coords.x, y: coords.y });
+  };
+
+  streamCanvas.oncontextmenu = (e) => {
+    e.preventDefault();
+  };
+
+  streamCanvas.onwheel = (e) => {
+    e.preventDefault();
+    const coords = getStreamCoords(e);
+    sendStreamCmd({ type: 'mouse', event: 'wheel', deltaX: e.deltaX, deltaY: e.deltaY, x: coords.x, y: coords.y });
+  };
+
+  streamCanvas.onpaste = (e) => {
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData('text');
+    if (text) {
+      sendStreamCmd({ type: 'text', text: text });
+    }
+  };
+}
+
+function handleStreamKey(e){
+  if (!streamWs || streamWs.readyState !== WebSocket.OPEN) return;
+  if (e.key === ' ' || e.code === 'Space') {
+    sendStreamCmd({ type: 'key_press', key: 'Space' });
+    return;
+  }
+  if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    sendStreamCmd({ type: 'text', text: e.key });
+  } else {
+    sendStreamCmd({
+      type: 'key_press',
+      key: e.key,
+      code: e.code,
+      ctrl: e.ctrlKey,
+      alt: e.altKey,
+      shift: e.shiftKey,
+      meta: e.metaKey
+    });
+  }
+}
+
+window.addEventListener('keydown', (e) => {
+  const modal = q('#streamModal');
+  if (!modal || modal.style.display === 'none') return;
+  const active = document.activeElement;
+  if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) {
+    return;
+  }
+  if (['Tab', 'Backspace', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code) || e.key === ' ') {
+    e.preventDefault();
+  }
+  handleStreamKey(e);
+});
+
+function sendStreamTextInput(){
+  const input = q('#streamTextInput');
+  const text = (input.value || '').trim();
+  if (!text) return;
+  sendStreamCmd({ type: 'text', text: text });
+  input.value = '';
+  if (streamCanvas) streamCanvas.focus();
+}
+
+function sendStreamEnter(){
+  sendStreamCmd({ type: 'key_press', key: 'Enter' });
+}
+
+function getStreamCoords(e){
+  const rect = streamCanvas.getBoundingClientRect();
+  const scaleX = streamCanvas.width / (rect.width || 1);
+  const scaleY = streamCanvas.height / (rect.height || 1);
+  const x = Math.round((e.clientX - rect.left) * scaleX);
+  const y = Math.round((e.clientY - rect.top) * scaleY);
+  return {
+    x: Math.max(0, Math.min(streamCanvas.width, x)),
+    y: Math.max(0, Math.min(streamCanvas.height, y))
+  };
+}
+
+function connectStreamWs(account){
+  if (streamWs) {
+    try { streamWs.close(); } catch(e){}
+    streamWs = null;
+  }
+
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = `${proto}//${window.location.host}/ws/browser/${encodeURIComponent(account)}?token=${encodeURIComponent(jwtToken || '')}&admin_key=${encodeURIComponent(jwtToken || '')}`;
+  
+  streamWs = new WebSocket(url);
+  streamWs.binaryType = 'blob';
+
+  streamWs.onopen = () => {
+    q('#streamLoadingText').textContent = 'Đang nhận khung hình từ trình duyệt...';
+  };
+
+  streamWs.onmessage = (e) => {
+    if (typeof e.data === 'string') {
+      try {
+        const msg = JSON.parse(e.data);
+        handleStreamMessage(msg);
+      } catch(err) {
+        console.warn('WS parse error:', err);
+      }
+    } else if (e.data instanceof Blob) {
+      handleStreamFrameBlob(e.data);
+    }
+  };
+
+  streamWs.onerror = () => {
+    q('#streamLoadingText').textContent = 'Lỗi kết nối WebSocket tới trình duyệt!';
+  };
+
+  streamWs.onclose = () => {
+    q('#streamLoading').style.display = 'flex';
+    q('#streamLoadingText').textContent = 'Phiên Live Stream đã đóng.';
+    refresh();
+  };
+}
+
+let pendingFrameBlob = null;
+let isRenderingFrame = false;
+
+function handleStreamFrameBlob(blob){
+  q('#streamLoading').style.display = 'none';
+  pendingFrameBlob = blob;
+  if (!isRenderingFrame) {
+    isRenderingFrame = true;
+    requestAnimationFrame(renderLatestFrame);
+  }
+}
+
+async function renderLatestFrame(){
+  if (!pendingFrameBlob) {
+    isRenderingFrame = false;
+    return;
+  }
+  const blob = pendingFrameBlob;
+  pendingFrameBlob = null;
+
+  try {
+    if ('createImageBitmap' in window) {
+      const bmp = await createImageBitmap(blob);
+      if (streamCanvas.width !== bmp.width || streamCanvas.height !== bmp.height) {
+        streamCanvas.width = bmp.width;
+        streamCanvas.height = bmp.height;
+        streamCanvas.style.aspectRatio = `${bmp.width} / ${bmp.height}`;
+        q('#streamRes').textContent = `${bmp.width}x${bmp.height}`;
+      }
+      streamCtx.drawImage(bmp, 0, 0);
+      bmp.close();
+    } else {
+      await new Promise(resolve => {
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {
+          if (streamCanvas.width !== img.width || streamCanvas.height !== img.height) {
+            streamCanvas.width = img.width;
+            streamCanvas.height = img.height;
+            streamCanvas.style.aspectRatio = `${img.width} / ${img.height}`;
+            q('#streamRes').textContent = `${img.width}x${img.height}`;
+          }
+          streamCtx.drawImage(img, 0, 0);
+          URL.revokeObjectURL(url);
+          resolve();
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); resolve(); };
+        img.src = url;
+      });
+    }
+  } catch(e) {
+    console.warn('Frame render error:', e);
+  }
+
+  if (pendingFrameBlob) {
+    requestAnimationFrame(renderLatestFrame);
+  } else {
+    isRenderingFrame = false;
+  }
+}
+
+function handleStreamMessage(msg){
+  if (msg.type === 'status') {
+    q('#streamLoadingText').textContent = msg.text;
+  } else if (msg.type === 'error') {
+    alert(msg.message);
+    closeStreamModal();
+  } else if (msg.type === 'connected') {
+    q('#streamLoading').style.display = 'none';
+    if (msg.url) q('#streamUrlInput').value = msg.url;
+    if (msg.viewport) {
+      streamCanvas.width = msg.viewport.width;
+      streamCanvas.height = msg.viewport.height;
+      streamCanvas.style.aspectRatio = `${msg.viewport.width} / ${msg.viewport.height}`;
+      q('#streamRes').textContent = `${msg.viewport.width}x${msg.viewport.height}`;
+    }
+  } else if (msg.type === 'frame') {
+    q('#streamLoading').style.display = 'none';
+    try {
+      const byteChars = atob(msg.data);
+      const byteNums = new Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+      const blob = new Blob([new Uint8Array(byteNums)], { type: 'image/jpeg' });
+      handleStreamFrameBlob(blob);
+    } catch(err){}
+  } else if (msg.type === 'tabs') {
+    if (msg.url) q('#streamUrlInput').value = msg.url;
+    renderStreamTabs(msg.tabs || [], msg.active || 0);
+  } else if (msg.type === 'download') {
+    triggerClientDownload(msg);
+  }
+}
+
+function renderStreamTabs(tabs, activeIdx){
+  const container = q('#streamTabs');
+  if (!tabs || tabs.length <= 1) {
+    container.innerHTML = '';
+    return;
+  }
+  container.innerHTML = tabs.map((t, idx) => {
+    const isAct = idx === activeIdx;
+    const title = esc(t.title || 'Tab').slice(0, 16);
+    return `<div style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer;background:${isAct?'#0284c7':'#334155'};color:#fff" onclick="sendStreamCmd({type:'switch_tab',index:${idx}})">
+      <span>${title}</span>
+      <span style="opacity:0.7;padding:0 2px" onclick="event.stopPropagation();sendStreamCmd({type:'close_tab',index:${idx}})" title="Đóng tab">×</span>
+    </div>`;
+  }).join('') + `<button class="btn" style="padding:2px 6px;font-size:11px;background:#334155;border-color:#475569;color:#fff" onclick="sendStreamCmd({type:'new_tab'})" title="Mở tab mới">＋</button>`;
+}
+
+function triggerClientDownload(msg){
+  streamDlCount++;
+  q('#streamDlCount').textContent = `📥 ${streamDlCount} video đã tải`;
+  
+  // 1. Tự động tải file về máy client của người dùng
+  const a = document.createElement('a');
+  a.href = msg.url;
+  a.download = msg.filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => a.remove(), 1000);
+
+  // 2. Hiển thị thông báo trên thanh toolbar stream
+  const banner = q('#streamDownloadBanner');
+  const sizeMb = msg.size ? ` (${(msg.size / (1024*1024)).toFixed(1)} MB)` : '';
+  banner.style.display = 'inline-flex';
+  banner.innerHTML = `<span>🎉 Đã tải video về máy: <b>${esc(msg.filename)}</b>${sizeMb}</span>`;
+  setTimeout(() => { banner.style.display = 'none'; }, 8000);
+}
+
+function sendStreamCmd(cmd){
+  if (streamWs && streamWs.readyState === WebSocket.OPEN) {
+    streamWs.send(JSON.stringify(cmd));
+  }
+}
+
+function sendStreamTextInput(){
+  const input = q('#streamTextInput');
+  const text = input.value;
+  if (!text) return;
+  sendStreamCmd({ type: 'text', text: text });
+  input.value = '';
+  if (streamCanvas) streamCanvas.focus();
+}
+
+function navigateStreamUrl(){
+  const url = q('#streamUrlInput').value.trim();
+  if (url) {
+    sendStreamCmd({ type: 'navigate', url: url });
+  }
+}
+
+function toggleStreamFullscreen(){
+  const box = q('.stream-box') || q('#streamModal');
+  if (!document.fullscreenElement) {
+    box.requestFullscreen().catch(err => alert(err.message));
+  } else {
+    document.exitFullscreen().catch(err => {});
+  }
+}
+
+async function closeStreamModal(){
+  if (streamWs) {
+    try {
+      sendStreamCmd({ type: 'close' });
+      streamWs.close();
+    } catch(e){}
+    streamWs = null;
+  }
+  hide('streamModal');
+  if (streamAccount) {
+    try {
+      await api('/api/admin/accounts/' + encodeURIComponent(streamAccount) + '/close_browser', { method: 'POST' });
+    } catch(e){}
+  }
+  refresh();
+}
+
 async function openBrowser(name,btn){
-  btn.disabled=true;const old=btn.textContent;btn.textContent='Đang mở…';
-  try{await api('/api/admin/accounts/'+encodeURIComponent(name)+'/open_browser',{method:'POST'});refresh();}
-  catch(e){alert(e.message);btn.disabled=false;btn.textContent=old;}
+  openLiveBrowser(name);
 }
 
 async function closeBrowser(name,btn){
@@ -577,7 +1148,10 @@ async function loadTasks(){
       sb[t.status]||'<span class="badge b-gray">'+esc(t.status)+'</span>',
       fmt(t.created_at),
       t.video_url
-        ?'<div class="video-wrap"><a href="'+esc(t.video_url)+'" target="_blank">Open</a><button class="btn" onclick="playVideo(&quot;'+esc(t.video_url)+'&quot;)">Preview</button></div>'
+        ?(()=>{
+            const vUrl = resolveVideoUrl(t.video_url);
+            return '<div class="video-wrap"><a href="'+esc(vUrl)+'" target="_blank">Open</a><button class="btn" onclick="playVideo(&quot;'+esc(vUrl)+'&quot;)">Preview</button></div>';
+          })()
         :(t.status==='failed'?'<span class="tiny" title="'+esc(t.error||'')+'">'+esc((t.error||'').slice(0,30))+'</span>':'—'),
       action
     ];
@@ -595,7 +1169,7 @@ async function cancelTask(id){
   }
 }
 
-function playVideo(url){q('#videoEl').src=url;show('videoModal');}
+function playVideo(url){q('#videoEl').src=resolveVideoUrl(url);show('videoModal');}
 function closeVideo(){q('#videoEl').pause();q('#videoEl').src='';hide('videoModal');}
 
 /* ---- API Keys ---- */
@@ -690,10 +1264,22 @@ async function toggleHeadless(on){
 
 /* Init: auth check */
 (async function boot(){
-  try{ await api('/api/admin/accounts'); hide('loginMask'); loadConfig(); refresh(); }
-  catch(e){ /* 401 handled */ }
+  if(!jwtToken){
+    showLogin();
+    return;
+  }
+  try{
+    const me = await api('/api/admin/me');
+    if(q('#adminUserBadge')) q('#adminUserBadge').textContent = me.username || currentAdminUser;
+    hide('loginScreen');
+    show('appLayout');
+    loadConfig();
+    refresh();
+    if(!timer) timer = setInterval(()=>{if(autoRefresh)refresh();}, 4000);
+  } catch(e){
+    showLogin('Vui lòng đăng nhập để tiếp tục.');
+  }
 })();
-timer=setInterval(()=>{if(autoRefresh)refresh();},4000);
 </script>
 </body>
 </html>

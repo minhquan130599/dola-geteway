@@ -141,12 +141,44 @@ async def _read_response_image(resp: aiohttp.ClientResponse) -> tuple[bytes, str
     return _validate_image_bytes(data)
 
 
+def optimize_image_file(path: Path) -> Path:
+    """Compresses large images (e.g. 2MB+ PNGs) to crisp high-quality JPEG for fast upload."""
+    try:
+        raw_size = path.stat().st_size
+        if raw_size > 600 * 1024 or path.suffix.lower() == ".png":
+            with Image.open(path) as im:
+                if im.mode in ("RGBA", "LA", "P"):
+                    bg = Image.new("RGB", im.size, (255, 255, 255))
+                    if im.mode == "P":
+                        im = im.convert("RGBA")
+                    bg.paste(im, mask=im.split()[-1] if im.mode in ("RGBA", "LA") else None)
+                    im = bg
+                elif im.mode != "RGB":
+                    im = im.convert("RGB")
+
+                max_dim = 2048
+                if max(im.width, im.height) > max_dim:
+                    im.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+
+                opt_path = path.with_suffix(".jpg")
+                im.save(opt_path, format="JPEG", quality=90, optimize=True)
+                if opt_path.stat().st_size < raw_size:
+                    if opt_path != path and path.exists():
+                        path.unlink()
+                    return opt_path
+                elif opt_path != path and opt_path.exists():
+                    opt_path.unlink()
+    except Exception as ex:
+        print(f"[media optimize error]: {ex}", flush=True)
+    return path
+
+
 async def download_one_image(session: aiohttp.ClientSession, url: str, dest: Path) -> Path:
     if url.lower().startswith("data:"):
         data, suffix = _decode_data_url(url)
         path = dest.with_suffix(suffix)
         path.write_bytes(data)
-        return path
+        return optimize_image_file(path)
     current = await _validate_url_async(url)
     # Try configured proxy first, fall back to direct connection if blocked
     proxies = []
@@ -173,7 +205,7 @@ async def download_one_image(session: aiohttp.ClientSession, url: str, dest: Pat
                     data, suffix = await _read_response_image(resp)
                     path = dest.with_suffix(suffix)
                     path.write_bytes(data)
-                    return path
+                    return optimize_image_file(path)
             except Exception as exc:
                 last_error = exc
                 break

@@ -3,20 +3,31 @@ import os
 from pathlib import Path
 
 
-def _load_local_env():
-    """Load ignored .env.local for local/tunnel runs; real environment wins."""
-    path = Path(__file__).with_name(".env.local")
-    if not path.exists():
-        return
-    for raw in path.read_text(encoding="utf-8-sig").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
+def _load_env():
+    """Load .env and .env.local files if they exist."""
+    base_dir = Path(__file__).parent
+    # Load .env first
+    for name in [".env", ".env.local"]:
+        p = base_dir / name
+        if not p.exists():
             continue
-        key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        try:
+            for raw in p.read_text(encoding="utf-8-sig").splitlines():
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                k = key.strip()
+                v = value.strip().strip('"').strip("'")
+                if name == ".env":
+                    os.environ.setdefault(k, v)
+                else:
+                    os.environ[k] = v
+        except Exception as e:
+            print(f"[config] Warning loading {name}: {e}")
 
 
-_load_local_env()
+_load_env()
 HOST = os.getenv("DOLA_HOST", "0.0.0.0")
 PORT = int(os.getenv("DOLA_PORT", "8000"))
 
@@ -48,10 +59,48 @@ PROXY = os.getenv("DOLA_PROXY", "")
 HEADLESS = os.getenv("DOLA_HEADLESS", "1") == "1"
 
 # Base public URL for returning static video links
-PUBLIC_BASE = os.getenv("DOLA_PUBLIC_BASE", f"http://127.0.0.1:{PORT}")
+PUBLIC_BASE = (
+    os.getenv("DOLA_PUBLIC_BASE")
+    or os.getenv("PUBLIC_BASE_URL")
+    or os.getenv("PUBLIC_BASE")
+    or os.getenv("BASE_URL")
+    or f"http://127.0.0.1:{PORT}"
+).strip().rstrip("/")
 
-# Admin web dashboard password (empty = no auth)
-ADMIN_KEY = os.getenv("DOLA_ADMIN_KEY", "")
+
+def get_public_base(request=None) -> str:
+    """Returns the effective public base URL for video and API links.
+
+    1. Checks environment variables (DOLA_PUBLIC_BASE, PUBLIC_BASE_URL, PUBLIC_BASE, BASE_URL)
+    2. If request is provided and configured base is localhost/127.0.0.1, auto-detects from request headers
+       (X-Forwarded-Proto, X-Forwarded-Host, Host).
+    """
+    configured = (
+        os.getenv("DOLA_PUBLIC_BASE")
+        or os.getenv("PUBLIC_BASE_URL")
+        or os.getenv("PUBLIC_BASE")
+        or os.getenv("BASE_URL")
+    )
+    if configured:
+        return configured.strip().rstrip("/")
+
+    if request is not None:
+        try:
+            host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+            if host and not any(host.startswith(h) for h in ("127.0.0.1", "localhost", "0.0.0.0")):
+                proto = request.headers.get("x-forwarded-proto") or ("https" if "trycloudflare" in host else request.url.scheme)
+                return f"{proto}://{host}".rstrip("/")
+        except Exception:
+            pass
+
+    return PUBLIC_BASE
+
+# Admin web dashboard credentials and JWT authentication
+ADMIN_USERNAME = os.getenv("DOLA_ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("DOLA_ADMIN_PASSWORD", "Minhquan@130599")
+JWT_SECRET = os.getenv("DOLA_JWT_SECRET", "dola_pool_jwt_secret_Minhquan@130599_2026")
+JWT_EXPIRE_SECONDS = int(os.getenv("DOLA_JWT_EXPIRE_SECONDS", str(86400 * 7)))  # 7 days
+ADMIN_KEY = os.getenv("DOLA_ADMIN_KEY", ADMIN_PASSWORD)
 
 # Dola 30s / Watermark Removal Chromium extension path
 EXTENSION_DIR = os.getenv("DOLA_EXTENSION_DIR", "extensions/dola30")

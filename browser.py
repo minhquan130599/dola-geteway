@@ -12,6 +12,7 @@ LAUNCH_ARGS = [
     "--password-store=basic",
     "--disable-features=PasswordSaveConfirmation,PasswordLeakDetection,Translate,OptimizationGuideModelDownloading",
     "--disable-save-password-bubble",
+    "--window-size=1296,1080",
 ]
 
 _COOKIE_ATTRIBUTES = {
@@ -135,6 +136,12 @@ def configure_clean_profile(profile_dir: Path):
     prefs["savefile"] = {
         "default_directory": project_download_dir,
     }
+    # Ensure window is not clamped to small default 800x600 size
+    browser_dict = prefs.setdefault("browser", {})
+    browser_dict["window_placement"] = {
+        "bottom": 1080, "left": 0, "maximized": False, "right": 1296, "top": 0,
+        "work_area_bottom": 1080, "work_area_left": 0, "work_area_right": 1920, "work_area_top": 0,
+    }
     prefs_file.write_text(json.dumps(prefs, indent=2), encoding="utf-8")
 
 def parse_proxy(raw: str | None) -> dict | None:
@@ -216,6 +223,7 @@ async def launch_account_context(p, account: str, headless: bool = None, use_ext
     kwargs = {
         "headless": pw_headless,
         "args": args,
+        "viewport": {"width": 1280, "height": 900},
         "locale": config.LOCALE,
         "timezone_id": config.TIMEZONE,
         "accept_downloads": True,
