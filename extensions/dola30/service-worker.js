@@ -65,13 +65,32 @@ chrome.runtime.onMessage.addListener((message) => {
     return;
   }
 
+  const isImg = message.mediaType === "image";
+  const ext = isImg ? ".png" : ".mp4";
+  const timestamp = new Date().toISOString().replace(/[-:T.]/g, "").slice(0, 14);
+  const filename = `dola_${isImg ? "image" : "video"}_${timestamp}${ext}`;
+
   chrome.downloads.download({
     url: message.url,
+    filename: filename,
     saveAs: false
   }).catch((error) => {
     console.warn("download failed:", error);
   });
 });
+
+if (chrome.downloads && chrome.downloads.onDeterminingFilename) {
+  chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+    let filename = item.filename || "video.mp4";
+    const hasExt = /\.[a-zA-Z0-9]{2,5}$/i.test(filename);
+    if (!hasExt) {
+      const isImg = (item.mime && item.mime.includes("image")) || (item.url && item.url.includes("image"));
+      filename = filename + (isImg ? ".png" : ".mp4");
+    }
+    suggest({ filename: filename, conflictAction: "uniquify" });
+    return true;
+  });
+}
 
 async function attachExistingTabs() {
   const tabs = await chrome.tabs.query({});

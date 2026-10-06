@@ -136,11 +136,15 @@ class BrowserPool:
         now = time.time()
         cur = self._conn.execute(
             "UPDATE accounts_meta SET rate_limited_until=0, limit_reason='', "
-            "quota_blocked_until=0, quota_reason='' "
+            "quota_blocked_until=0, quota_reason='', credit_balance=NULL "
             "WHERE (rate_limited_until > 0 AND rate_limited_until <= ?) "
             "OR (quota_blocked_until > 0 AND quota_blocked_until <= ?)", (now, now))
-        if cur.rowcount:
-            self._conn.commit()
+        # Ensure accounts with positive credits are never blocked by stale quota blocks
+        self._conn.execute(
+            "UPDATE accounts_meta SET quota_blocked_until=0, quota_reason='' "
+            "WHERE credit_balance > 0 AND quota_blocked_until > 0"
+        )
+        self._conn.commit()
 
     def _mark_quota_blocked(self, account: str, reason: str = ""):
         self._conn.execute(
@@ -192,8 +196,8 @@ class BrowserPool:
                 "credit_checked_at": m["credit_checked_at"] if m else 0,
                 "proxy": (m["proxy"] or "") if m and "proxy" in m.keys() else "",
                 "used_today": used,
-                "limit": DAILY_LIMIT,
-                "remaining": max(0, DAILY_LIMIT - used),
+                "limit": config.DEFAULT_DAILY_CREDITS,
+                "remaining": m["credit_balance"] if m and m["credit_balance"] is not None else config.DEFAULT_DAILY_CREDITS,
                 "busy": bool(lock and lock.locked()),
             })
         return out
@@ -258,45 +262,81 @@ class BrowserPool:
     # ===== Scheduling =====
 
     def _set_credit_balance(self, account: str, balance: int, source: str = ""):
+        bal = max(0, int(balance))
         self._conn.execute(
             "UPDATE accounts_meta SET credit_balance=?, credit_checked_at=? WHERE name=?",
-            (max(0, int(balance)), time.time(), account),
+            (bal, time.time(), account),
         )
-        if balance < 2:
+        if bal <= 0:
             self._conn.execute(
                 "UPDATE accounts_meta SET quota_blocked_until=?, quota_reason=? WHERE name=?",
-                (self._next_limit_reset(), source[:300] or "Insufficient credits", account),
+                (self._next_limit_reset(), source[:300] or "Hết tín dụng (0 pts)", account),
+            )
+        else:
+            self._conn.execute(
+                "UPDATE accounts_meta SET quota_blocked_until=0, quota_reason='' WHERE name=?",
+                (account,)
             )
         self._conn.commit()
 
-    def _credit_available(self, account: str, required: int = 2) -> bool:
+    def deduct_credits(self, account: str, points: int):
+        """Deducts consumed credits after a successful generation and recalculates remaining."""
+        m = self._meta(account)
+        if m and m["credit_balance"] is not None:
+            new_balance = max(0, int(m["credit_balance"]) - points)
+            self._conn.execute(
+                "UPDATE accounts_meta SET credit_balance=?, credit_checked_at=? WHERE name=?",
+                (new_balance, time.time(), account),
+            )
+            if new_balance <= 0:
+                self._conn.execute(
+                    "UPDATE accounts_meta SET quota_blocked_until=?, quota_reason=? WHERE name=?",
+                    (self._next_limit_reset(), "Hết tín dụng trong ngày (0 pts)", account),
+                )
+            self._conn.commit()
+            print(f"[pool] {account} deducted {points} credit pt(s), remaining balance: {new_balance} pts", flush=True)
+
+    def _credit_available(self, account: str, required: int = 1) -> bool:
         row = self._meta(account)
         return not row or row["credit_balance"] is None or row["credit_balance"] >= required
 
-    def _schedulable(self, a: dict) -> bool:
-        return (a["scheduling"] and not a["cooling"] and not a["rate_limited"]
-                and not a["quota_blocked"] and a["used_today"] < DAILY_LIMIT
-                and (a["credit_balance"] is None or a["credit_balance"] >= 2))
+    def _schedulable(self, a: dict, req_points: int = 1) -> bool:
+        """Determines if account can be scheduled for a task requiring req_points credits.
+        Only excludes account if credits is 0 or less than req_points.
+        """
+        if not a.get("scheduling", True):
+            return False
+        if a.get("cooling") or a.get("rate_limited"):
+            return False
+        pts = a.get("credit_balance")
+        if pts is not None:
+            if pts <= 0:
+                return False
+            if pts < req_points:
+                return False
+        else:
+            if a.get("quota_blocked"):
+                return False
+        return True
 
     @property
     def all_accounts_limited(self) -> bool:
-        """Returns True if all active accounts have reached daily limit."""
+        """Returns True if all active accounts are rate limited by Dola."""
         candidates = [a for a in self.list_accounts() if a["scheduling"] and not a["cooling"]]
-        return bool(candidates) and all(
-            a["rate_limited"] or a["used_today"] >= DAILY_LIMIT for a in candidates
-        )
+        return bool(candidates) and all(a["rate_limited"] for a in candidates)
 
     @property
     def all_accounts_quota_blocked(self) -> bool:
+        """Returns True if all active accounts are confirmed to have 0 credits or quota blocked."""
         candidates = [a for a in self.list_accounts() if a["scheduling"] and not a["cooling"]]
         return bool(candidates) and all(
-            a["quota_blocked"] or a["rate_limited"] or a["used_today"] >= DAILY_LIMIT
+            a["quota_blocked"] or (a["credit_balance"] is not None and a["credit_balance"] <= 0)
             for a in candidates
-        ) and any(a["quota_blocked"] for a in candidates)
+        )
 
     @property
     def available(self) -> bool:
-        return any(self._schedulable(a) for a in self.list_accounts())
+        return any(self._schedulable(a, req_points=1) for a in self.list_accounts())
 
     @property
     def cookie_count(self) -> int:  # /health compatibility
@@ -340,22 +380,21 @@ class BrowserPool:
                              on_account_assigned=None) -> dict:
         """Picks an idle schedulable account; waits if accounts are busy; rotates on quota/risk limits."""
         last_err = None
+        req_points = config.estimate_required_credits(model, ratio, duration)
+        print(f"[pool] Video request: model={model}, ratio={ratio}, duration={duration}s -> requires {req_points} credit point(s)", flush=True)
+
         while True:
             if check_cancelled and check_cancelled():
                 raise asyncio.CancelledError("Task was cancelled")
 
-            if self.all_accounts_quota_blocked:
-                raise AllAccountsQuotaBlockedError(
-                    f"429: All schedulable accounts have insufficient points: {last_err or 'No accounts'}"
-                )
-            if self.all_accounts_limited:
-                raise AllAccountsLimitedError(
-                    f"429: All schedulable accounts have reached Dola daily limit: {last_err or 'No accounts'}"
-                )
-
-            schedulable = [a for a in self.list_accounts() if self._schedulable(a)]
+            schedulable = [a for a in self.list_accounts() if self._schedulable(a, req_points=req_points)]
             if not schedulable:
-                raise RuntimeError(f"No available accounts in pool: {last_err or 'No accounts'}")
+                candidates = [a for a in self.list_accounts() if a["scheduling"] and not a["cooling"]]
+                if candidates and all((a.get("credit_balance") is not None and a["credit_balance"] < req_points) or a.get("quota_blocked") or a.get("rate_limited") for a in candidates):
+                    raise AllAccountsQuotaBlockedError(
+                        f"429: Tất cả tài khoản rảnh đều không đủ tín dụng cho mode này (yêu cầu {req_points} pts). Vui lòng thử mode khác (như 1 pt) hoặc đợi reset ngày mới."
+                    )
+                raise RuntimeError(f"No available accounts in pool for required {req_points} pt(s): {last_err or 'No accounts'}")
 
             # Randomize account selection across all schedulable accounts
             import random
@@ -370,7 +409,7 @@ class BrowserPool:
                 async with self.semaphore:
                     async with lock:
                         acc_obj = next((x for x in self.list_accounts() if x['name'] == account), None)
-                        if not acc_obj or not self._schedulable(acc_obj):
+                        if not acc_obj or not self._schedulable(acc_obj, req_points=req_points):
                             continue
                         if on_account_assigned:
                             try:
@@ -387,14 +426,19 @@ class BrowserPool:
                                 on_balance=on_balance_cb, reference_image_paths=reference_image_paths,
                                 check_cancelled=check_cancelled)
                             self._claim(account)
+                            self.deduct_credits(account, req_points)
                             self._conn.execute(
                                 "UPDATE accounts_meta SET last_used_at=? WHERE name=?",
                                 (time.time(), account))
                             self._conn.commit()
                             return result
                         except CreditInsufficientError as e:
-                            print(f"[pool] {account} insufficient points before generation, skipping: {e}", flush=True)
-                            self._mark_quota_blocked(account, str(e))
+                            bal = getattr(e, "balance", None)
+                            if bal is not None:
+                                self._set_credit_balance(account, bal, str(e))
+                            else:
+                                self._set_credit_balance(account, max(0, req_points - 1), str(e))
+                            print(f"[pool] {account} insufficient points for {req_points} pt(s) task: {e}", flush=True)
                             last_err = e
                             continue
                         except AccountLimitedError as e:
@@ -404,7 +448,7 @@ class BrowserPool:
                             continue
                         except CreditError as e:
                             print(f"[pool] {account} out of quota, rotating: {e}", flush=True)
-                            self._claim(account)
+                            self._set_credit_balance(account, 0, str(e))
                             last_err = e
                             continue
                         except RiskControlError as e:

@@ -64,6 +64,28 @@ LIMIT_RESET_TZ = os.getenv("DOLA_LIMIT_RESET_TZ", "Asia/Tokyo")
 
 # Conservative credit check before video generation (default 2 points)
 VIDEO_REQUIRED_POINTS = int(os.getenv("DOLA_VIDEO_REQUIRED_POINTS", "2"))
+DEFAULT_DAILY_CREDITS = int(os.getenv("DOLA_DEFAULT_DAILY_CREDITS", "6"))
+
+
+def estimate_required_credits(model: str = "seedance-2.0", ratio: str = "16:9", duration: int = 10) -> int:
+    """Calculates required Dola credit points based on generation mode.
+    - Seedance 2.0, 9:16, 30s: 1 point
+    - Seedance 2.0 (standard 10s/15s or other ratios): 2 points
+    - Seedance 2.5 (<= 10s): 4 points
+    - Seedance 2.5 (> 10s): 6 points
+    """
+    m = (model or "").lower().replace("-", "_").replace(".", "")
+    dur = duration or 10
+    rat = (ratio or "").strip()
+
+    if "25" in m or "2_5" in m:
+        return 4 if dur <= 10 else 6
+
+    # Seedance 2.0 (standard or fast)
+    if rat == "9:16" and dur == 30:
+        return 1
+
+    return VIDEO_REQUIRED_POINTS
 
 # Public reference image download limits
 REFERENCE_IMAGE_MAX_BYTES = int(os.getenv("DOLA_REFERENCE_IMAGE_MAX_BYTES", str(15 * 1024 * 1024)))

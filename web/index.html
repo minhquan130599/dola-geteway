@@ -377,7 +377,7 @@ async function loadDash(){
     <div class="stat s1"><div class="v">${st.today_completed}</div><div class="l">Completed Today</div></div>
     <div class="stat s2"><div class="v">${st.today_failed}</div><div class="l">Failed Today</div></div>
     <div class="stat s3"><div class="v">${sr}</div><div class="l">Success Rate</div></div>
-  <div class="stat s4"><div class="v">${st.available_accounts}/${st.total_accounts}</div><div class="l">Available · ${st.total_remaining} Left</div></div>`;
+  <div class="stat s4"><div class="v">${st.available_accounts}/${st.total_accounts}</div><div class="l">Sẵn sàng · ${st.total_remaining} pts còn lại</div></div>`;
   const max=Math.max(1,...st.per_day.map(d=>d.completed+d.failed));
   q('#chart').innerHTML=st.per_day.map(d=>`
     <div class="col">
@@ -388,12 +388,12 @@ async function loadDash(){
       <div class="lbl">${d.day}</div>
     </div>`).join('');
   q('#perAccount').innerHTML=table(
-    ['Account','Status','Dispatch','Remaining Today','Total Generated','Last Used'],
+    ['Account','Status','Dispatch','Tín dụng còn lại','Total Generated','Last Used'],
     st.per_account.map(a=>[
       accLabel(a),
       statusBadge(a),
       `<label class="sw"><input type="checkbox" ${a.scheduling?'checked':''} onchange="setSched('${a.name}',this.checked)"><i></i></label>`,
-      `<b>${a.remaining}</b> / ${a.limit}<span class="tiny"> còn lại</span>`,
+      (a.credit_balance != null ? `<b style="color:${a.credit_balance>0?'#059669':'#dc2626'}">${a.credit_balance} pts</b>` : `<span class="tiny" style="color:#94a3b8">Chưa check</span>`) + `<div class="tiny" style="color:#64748b">${a.used_today||0} video hôm nay</div>`,
       a.completed_total||0,
       fmt(a.last_used_at)
     ])
@@ -431,8 +431,10 @@ async function loadAccounts(){
       :(jb&&jb.kind==='add'&&jb.status==='failed')?'<span class="badge b-red">Add Failed</span>'
       :statusBadge(x);
     const warn=(jb&&jb.status==='failed')?' <span class="tiny" title="'+esc(jb.error)+'">⚠</span>':'';
-    const pts = x.credit_balance!=null ? `<div class="tiny" style="color:#059669;font-weight:600">${x.credit_balance} pts</div>` : '';
-    const rem = `<b>${x.remaining}</b> / ${x.limit}${pts}`;
+    const pts = x.credit_balance != null
+      ? `<b style="font-size:14px;color:${x.credit_balance > 0 ? '#059669' : '#dc2626'}">${x.credit_balance} pts</b>`
+      : `<span class="tiny" style="color:#94a3b8">Chưa check</span>`;
+    const rem = pts + `<div class="tiny" style="color:#64748b">${x.used_today || 0} video hôm nay</div>`;
     const browserBtn = x.browser_open
       ? `<button class="btn btn-danger" style="margin-right:6px" onclick="closeBrowser('${x.name}',this)">Đóng Browser</button>`
       : `<button class="btn" style="margin-right:6px;background:#f0fdf4;border-color:#86efac;color:#166534" onclick="openBrowser('${x.name}',this)" title="Mở profile Chrome này lên màn hình">🌐 Mở Browser</button>`;
@@ -457,7 +459,7 @@ async function loadAccounts(){
       browserBtn+`<button class="btn" style="margin-right:6px" onclick="verify('${x.name}',this)">Verify</button><button class="btn btn-danger" onclick="delAccount('${x.name}')">Delete</button>`
     ];
   });
-  q('#accountsTable').innerHTML=table(['Account ID','Name','Proxy','Status','Dispatch','Remaining','Last Used','Created At','Actions'],rows);
+  q('#accountsTable').innerHTML=table(['Account ID','Name','Proxy','Status','Dispatch','Tín dụng còn lại','Last Used','Created At','Actions'],rows);
 }
 
 function openEditProxy(name, currentProxy){

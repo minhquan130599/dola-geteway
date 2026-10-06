@@ -1,4 +1,4 @@
-﻿(function () {
+(function () {
   const PANEL_ID = "watermark-free-media-panel";
   const DOUBAO_PLAY_INFO_URL = "https://www.doubao.com/samantha/media/get_play_info?version_code=20800&language=zh-CN&device_platform=web&aid=497858&real_aid=497858&pkg_type=release_version&device_id=&pc_version=2.51.7&region=&sys_region=&samantha_web=1&use-olympus-account=1&web_tab_id=";
   const items = new Map();
@@ -273,7 +273,7 @@
       button.type = "button";
       button.textContent = "Download";
       button.addEventListener("click", () => {
-        chrome.runtime.sendMessage({ type: "DOWNLOAD_MEDIA", url: item.url });
+        chrome.runtime.sendMessage({ type: "DOWNLOAD_MEDIA", url: item.url, mediaType: item.type });
       });
 
       row.append(label, button);

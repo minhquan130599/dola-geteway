@@ -123,6 +123,18 @@ def configure_clean_profile(profile_dir: Path):
     autofill_dict["credit_card_enabled"] = False
     translate_dict = prefs.setdefault("translate", {})
     translate_dict["enabled"] = False
+
+    # Route all manual and extension downloads directly to project downloads directory
+    project_download_dir = str(Path(config.DOWNLOAD_DIR).resolve())
+    Path(project_download_dir).mkdir(parents=True, exist_ok=True)
+    prefs["download"] = {
+        "default_directory": project_download_dir,
+        "prompt_for_download": False,
+        "directory_upgrade": True,
+    }
+    prefs["savefile"] = {
+        "default_directory": project_download_dir,
+    }
     prefs_file.write_text(json.dumps(prefs, indent=2), encoding="utf-8")
 
 def parse_proxy(raw: str | None) -> dict | None:
@@ -199,11 +211,15 @@ async def launch_account_context(p, account: str, headless: bool = None, use_ext
             f"--disable-extensions-except={extension_dir}",
             f"--load-extension={extension_dir}",
         ])
+    project_download_dir = str(Path(config.DOWNLOAD_DIR).resolve())
+    Path(project_download_dir).mkdir(parents=True, exist_ok=True)
     kwargs = {
         "headless": pw_headless,
         "args": args,
         "locale": config.LOCALE,
         "timezone_id": config.TIMEZONE,
+        "accept_downloads": True,
+        "downloads_path": project_download_dir,
     }
 
     # Proxy selection: explicit arg > account proxy in DB > global config.PROXY

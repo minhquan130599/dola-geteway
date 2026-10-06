@@ -57,6 +57,9 @@ class AccountLimitedError(Exception):
 
 class CreditInsufficientError(Exception):
     """Insufficient points prior to generation."""
+    def __init__(self, message: str, balance: int | None = None):
+        super().__init__(message)
+        self.balance = balance
 
 
 async def activate_video_mode(page) -> None:
@@ -237,7 +240,7 @@ async def attach_reference_images(page, image_paths: list[str]) -> None:
 
     def on_response(response):
         url = response.url
-        if "/alice/resource/prepare_upload" in url or "/upload/v1/" in url:
+        if "/alice/resource/prepare_upload" in url or "/upload/v1/" in url or ("tos" in url and "upload" in url):
             events.append((response.status, url))
 
     page.on("response", on_response)
@@ -248,17 +251,29 @@ async def attach_reference_images(page, image_paths: list[str]) -> None:
         while time.time() < deadline:
             prepare_count = sum("/alice/resource/prepare_upload" in url and 200 <= status < 300
                                 for status, url in events)
-            tos_count = sum("/upload/v1/" in url and 200 <= status < 300
+            tos_count = sum(("/upload/v1/" in url or ("tos" in url and "upload" in url)) and 200 <= status < 300
                             for status, url in events)
-            # Wait for thumbnails and TOS completion before sending
-            thumb_count = await page.locator('img[alt]').count()
-            if prepare_count >= expected and tos_count >= expected and thumb_count >= expected:
-                await page.wait_for_timeout(800)
-                print(f"[upload] Reference images uploaded: {expected} image(s)", flush=True)
+
+            # Check UI thumbnails and upload progress spinners inside chat input
+            ui_state = await page.evaluate(r"""() => {
+                const area = document.querySelector('textarea, [contenteditable="true"]')?.closest('[class*="chat"], [class*="input"], [class*="panel"], form') || document.body;
+                const imgs = Array.from(area.querySelectorAll('img')).filter(im => {
+                    const r = im.getBoundingClientRect();
+                    return r.width >= 24 && r.height >= 24 && (im.src.startsWith('blob:') || im.src.includes('tos') || im.src.includes('ibyteimg') || im.src.includes('upload'));
+                });
+                const spinners = area.querySelectorAll('[class*="loading"], [class*="spin"], [role="progressbar"]');
+                return { count: imgs.length, hasSpinner: spinners.length > 0 };
+            }""")
+
+            # TOS upload has completed for all expected images (each PUT /upload/v1/ succeeded)
+            # OR UI has rendered all expected thumbnails without active spinner and at least one upload completed
+            if tos_count >= expected or (ui_state["count"] >= expected and not ui_state["hasSpinner"] and tos_count > 0):
+                await page.wait_for_timeout(1000)
+                print(f"[upload] Reference images uploaded: {expected} image(s) (tos={tos_count}/{expected}, prepare={prepare_count}, thumbs={ui_state['count']})", flush=True)
                 return
             await page.wait_for_timeout(250)
         raise TimeoutError(
-            f"Reference image upload timeout: prepare={prepare_count}/{expected}, tos={tos_count}/{expected}"
+            f"Reference image upload timeout: prepare={prepare_count}/{expected}, tos={tos_count}/{expected}, thumbs={ui_state['count']}/{expected}"
         )
     finally:
         page.remove_listener("response", on_response)
@@ -371,7 +386,8 @@ async def _preflight_balance(page, ms_token: str, fp: str, required: int) -> dic
             raise AccountLimitedError(f"Account daily generation limit: {source[:120]}")
         if balance is not None and balance < required:
             raise CreditInsufficientError(
-                f"Insufficient points: current {balance}, required {required} (source: {source[:120]})"
+                f"Insufficient points: current {balance}, required {required} (source: {source[:120]})",
+                balance=balance
             )
         return {"balance": balance, "source": source}
     except (AccountLimitedError, CreditInsufficientError):
@@ -509,12 +525,11 @@ async def generate_video(account: str, prompt: str, ratio: str = None,
             await page.wait_for_timeout(5000)
             cookies = await context.cookies("https://www.dola.com")
             ms_token, fp = cookie_value(cookies, "msToken"), cookie_value(cookies, "s_v_web_id")
-            req_points = (
-                4 if model_key == "seedance_v2.5" and (duration or 10) <= 10
-                else 6 if model_key == "seedance_v2.5"
-                else config.VIDEO_REQUIRED_POINTS
-            )
-            await _preflight_balance(page, ms_token, fp, req_points)
+            req_points = config.estimate_required_credits(model_key, ratio, duration)
+            print(f"[{account}] Mode requirement: {req_points} credit point(s) (model={model_key}, ratio={ratio}, duration={duration}s)", flush=True)
+            preflight = await _preflight_balance(page, ms_token, fp, req_points)
+            if preflight.get("balance") is not None and on_balance:
+                on_balance(preflight["balance"], preflight.get("source", ""))
 
             # ---- UI Submission ----
             await activate_video_mode(page)
@@ -541,12 +556,12 @@ async def generate_video(account: str, prompt: str, ratio: str = None,
                     await current_model.click(timeout=5000)
                     await page.wait_for_timeout(600)
                     options = (
-                        ("Dreamina Seedance 2.5", "Seedance 2.5", "Seedance2.5", "Model 2.5", "Mô hình 2.5", "モデル 2.5")
+                        ("Dreamina Seedance 2.5", "Seedance 2.5", "Seedance2.5", "Model 2.5", "Model 2.5 Nhanh", "Mô hình 2.5", "Mô hình 2.5 Nhanh", "モデル 2.5")
                         if model_key == "seedance_v2.5"
                         else (
                             "Dreamina Seedance 2.0 Fast", "Dreamina Seedance 2.0", "Dreamina Seedance 2.0高速",
                             "Seedance 2.0 Fast", "Seedance 2.0", "Seedance2.0Fast", "Seedance2.0",
-                            "Model 2.0 Fast", "Model 2.0", "Mô hình 2.0", "モデル 2.0高速"
+                            "Model 2.0 Fast", "Model 2.0 Nhanh", "Model 2.0", "Mô hình 2.0 Nhanh", "Mô hình 2.0", "モデル 2.0高速"
                         )
                     )
                     selected = False
@@ -626,6 +641,18 @@ async def generate_video(account: str, prompt: str, ratio: str = None,
             await page.keyboard.type(prompt, delay=100)
             await page.wait_for_timeout(600)
             await page.keyboard.press("Enter")
+            await page.wait_for_timeout(600)
+            for send_sel in [
+                "button[aria-label*='Send' i]",
+                "button[aria-label*='Gửi' i]",
+                "button[class*='send' i]",
+                "[role='button'][aria-label*='Gửi' i]",
+                "[role='button'][aria-label*='Send' i]",
+            ]:
+                send_cand = page.locator(send_sel).first
+                if await send_cand.count() and await send_cand.is_visible() and not await send_cand.is_disabled():
+                    await send_cand.click()
+                    break
             print(f"[{account}] UI submitted prompt: {prompt[:40]}", flush=True)
 
             # ---- Captcha Solver (up to 3 attempts) ----
