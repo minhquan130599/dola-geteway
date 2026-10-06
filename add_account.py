@@ -13,7 +13,7 @@ from pathlib import Path
 
 from patchright.async_api import async_playwright
 
-from browser import LAUNCH_ARGS, apply_account_cookies
+from browser import LAUNCH_ARGS, apply_account_cookies, configure_clean_profile
 import config
 
 
@@ -104,16 +104,21 @@ async def google_login(g, email: str, password: str, secret: str):
         raise RuntimeError("Google login did not complete within 12 steps (saved dbg_google2.png)")
 
 
-async def add_account_flow(account: str, email: str, password: str, secret: str) -> bool:
+async def add_account_flow(account: str, email: str, password: str, secret: str, proxy: str = "") -> bool:
     """Full account addition flow; returns True on success."""
     profile_dir = Path("accounts") / account
     profile_dir.mkdir(parents=True, exist_ok=True)
+    configure_clean_profile(profile_dir)
 
     async with async_playwright() as p:
         kwargs = {"headless": False, "args": LAUNCH_ARGS,
                   "locale": "ja-JP", "timezone_id": "Asia/Tokyo"}
-        if config.PROXY:
-            kwargs["proxy"] = {"server": config.PROXY}
+        acc_proxy = proxy or config.PROXY
+        if acc_proxy:
+            from browser import parse_proxy
+            parsed = parse_proxy(acc_proxy)
+            if parsed:
+                kwargs["proxy"] = parsed
         context = await p.chromium.launch_persistent_context(str(profile_dir), **kwargs)
         try:
             await apply_account_cookies(context, account)

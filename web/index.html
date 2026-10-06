@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -111,6 +111,7 @@ td .prompt{display:block;max-width:340px;overflow:hidden;text-overflow:ellipsis;
 <header>
   <div class="brand"><span class="dot"></span>Dola Pool Dashboard</div>
   <div class="head-r">
+    <label style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;margin-right:8px"><input type="checkbox" id="headlessCk" checked onchange="toggleHeadless(this.checked)">Chạy ẩn (Headless)</label>
     <label><input type="checkbox" id="autoCk" checked onchange="autoRefresh=this.checked">Auto Refresh</label>
     <span id="lastUpdate"></span>
     <button class="btn" onclick="refresh()">Refresh</button>
@@ -157,7 +158,10 @@ td .prompt{display:block;max-width:340px;overflow:hidden;text-overflow:ellipsis;
           <div class="options-grid">
             <div class="field">
               <label for="videoModel">Model</label>
-              <select id="videoModel"><option value="seedance-2.0">Seedance 2.0</option><option value="seedance-2.5">Seedance 2.5</option></select>
+              <select id="videoModel">
+                <option value="seedance-2.0" selected>Seedance 2.0 Fast (2 credit · Nhanh 2-5m)</option>
+                <option value="seedance-2.5">Seedance 2.5 (4-6 credit · Pro, queue ~2h)</option>
+              </select>
             </div>
             <div class="field">
               <label for="videoRatio">Aspect ratio</label>
@@ -179,9 +183,10 @@ td .prompt{display:block;max-width:340px;overflow:hidden;text-overflow:ellipsis;
           </div>
         </div>
         <aside class="create-side">
-          <h4>How it works</h4>
-          <p>Text mode sends only your prompt. Image mode converts the selected images to temporary data and passes them to the existing reference-image pipeline.</p>
-          <p>The account pool chooses an available verified Dola profile automatically. Follow progress in Task Queue.</p>
+          <h4>Thông tin & Biểu giá điểm tín dụng</h4>
+          <p><b>• Seedance 2.0 Fast (Khuyên dùng):</b> Chỉ tốn <b>2 điểm</b> tín dụng cho 10s hoặc 30s; tạo nhanh chỉ mất 2-5 phút.</p>
+          <p><b>• Seedance 2.5:</b> Mô hình cao cấp, 10s tốn <b>4 điểm</b>, 15s tốn <b>6 điểm</b>. Do tải nặng, Dola đưa vào hàng đợi dài (~2 giờ).</p>
+          <p>Tự động chọn tài khoản còn điểm và rảnh trong pool. Theo dõi tiến độ tại Task Queue.</p>
         </aside>
       </div>
     </div>
@@ -191,7 +196,10 @@ td .prompt{display:block;max-width:340px;overflow:hidden;text-overflow:ellipsis;
     <div class="card">
       <div class="toolbar">
         <h3 style="margin:0">Account List</h3>
-        <button class="btn btn-p" onclick="openAddAccount()">＋ Add Account</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-p" style="background:#1877F2;border-color:#1877F2" onclick="openAddFacebookAccount()">＋ Add Facebook (tk|pass|2fa)</button>
+          <button class="btn" onclick="openAddAccount()">＋ Add Google</button>
+        </div>
       </div>
       <div id="accountsTable"></div>
     </div>
@@ -303,19 +311,17 @@ function setGenerationStatus(message,type=''){
 async function submitDashboardVideo(){
   const prompt=q('#videoPrompt').value.trim();
   const files=createMode==='image'?[...q('#videoImages').files]:[];
-  if(!prompt)return alert('Please enter a prompt');
-  if(createMode==='image'&&!files.length)return alert('Please select at least one image');
+  if(!prompt)return alert('Vui lòng nhập prompt');
+  if(createMode==='image'&&!files.length)return alert('Vui lòng chọn ít nhất một ảnh');
   const maxBytes=15*1024*1024;
   const oversized=files.find(file=>file.size>maxBytes);
-  if(oversized)return alert(oversized.name+' exceeds the 15 MB limit');
+  if(oversized)return alert(oversized.name+' vượt quá giới hạn 15 MB');
   const btn=q('#createVideoBtn');
   btn.disabled=true;
-  q('#createResult').style.display='none';
-  setGenerationStatus('Reading input…');
-  const token=++createPollToken;
+  btn.textContent='Đang tạo task…';
+  setGenerationStatus('Đang gửi yêu cầu tạo video…');
   try{
     const refs=await Promise.all(files.map(fileToDataUrl));
-    setGenerationStatus('Submitting…');
     const task=await api('/api/admin/videos/generations',{method:'POST',body:{
       model:q('#videoModel').value,
       prompt,
@@ -323,29 +329,33 @@ async function submitDashboardVideo(){
       duration:Number(q('#videoDuration').value),
       reference_images:refs
     }});
-    await pollDashboardVideo(task.id,token);
+    const shortId = (task.id || '').replace('video_', '').slice(0, 10);
+    q('#genStatus').innerHTML = `<span style="color:#00b875;font-weight:600">✓ Đã tạo task ${esc(shortId)} thành công!</span> <button class="btn" style="padding:2px 10px;font-size:12px;margin-left:8px;cursor:pointer" onclick="switchTab('tasks')">Xem Task Queue →</button>`;
+    btn.disabled=false;
+    btn.textContent='Generate Video';
+    // Background polling for this task without freezing UI
+    trackDashboardVideo(task.id);
   }catch(e){
-    if(token===createPollToken)setGenerationStatus(e.message||'Generation failed','error');
-  }finally{
-    if(token===createPollToken)btn.disabled=false;
+    setGenerationStatus(e.message||'Tạo task thất bại','error');
+    btn.disabled=false;
+    btn.textContent='Generate Video';
   }
 }
 
-async function pollDashboardVideo(taskId,token){
-  for(let i=0;i<600&&token===createPollToken;i++){
-    const task=await api('/api/admin/videos/'+encodeURIComponent(taskId));
-    if(task.status==='completed'&&task.video_url){
-      q('#createVideoEl').src=task.video_url;
-      q('#createVideoLink').href=task.video_url;
-      q('#createResult').style.display='block';
-      setGenerationStatus('Completed','success');
-      return;
-    }
-    if(task.status==='failed')throw new Error(task.error||'Video generation failed');
-    setGenerationStatus(task.status==='processing'?'Generating…':'Queued…');
-    await new Promise(resolve=>setTimeout(resolve,3000));
+async function trackDashboardVideo(taskId){
+  for(let i=0;i<600;i++){
+    await new Promise(resolve=>setTimeout(resolve,4000));
+    try{
+      const task=await api('/api/admin/videos/'+encodeURIComponent(taskId));
+      if(task.status==='completed'&&task.video_url){
+        q('#createVideoEl').src=task.video_url;
+        q('#createVideoLink').href=task.video_url;
+        q('#createResult').style.display='block';
+        return;
+      }
+      if(task.status==='failed') return;
+    }catch(e){}
   }
-  if(token===createPollToken)throw new Error('Generation status polling timed out');
 }
 
 async function refresh(){
@@ -383,7 +393,7 @@ async function loadDash(){
       accLabel(a),
       statusBadge(a),
       `<label class="sw"><input type="checkbox" ${a.scheduling?'checked':''} onchange="setSched('${a.name}',this.checked)"><i></i></label>`,
-      `<b>${a.used_today}</b> / ${a.limit}<span class="tiny"> (logged)</span>`,
+      `<b>${a.remaining}</b> / ${a.limit}<span class="tiny"> còn lại</span>`,
       a.completed_total||0,
       fmt(a.last_used_at)
     ])
@@ -392,6 +402,7 @@ async function loadDash(){
 
 function accLabel(x){return x.email?`<div>${esc(x.email)}</div>`:'<span class="tiny">No Email</span>';}
 function statusBadge(a){
+  if(a.browser_open)return '<span class="badge b-blue" style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe">Browser Open</span>';
   if(a.busy)return '<span class="badge b-blue">Generating</span>';
   if(a.rate_limited)return '<span class="badge b-orange">Rate limited until '+fmt(a.rate_limited_until)+'</span>';
   if(a.quota_blocked)return '<span class="badge b-orange">Quota blocked until '+fmt(a.quota_blocked_until)+'</span>';
@@ -420,18 +431,75 @@ async function loadAccounts(){
       :(jb&&jb.kind==='add'&&jb.status==='failed')?'<span class="badge b-red">Add Failed</span>'
       :statusBadge(x);
     const warn=(jb&&jb.status==='failed')?' <span class="tiny" title="'+esc(jb.error)+'">⚠</span>':'';
+    const pts = x.credit_balance!=null ? `<div class="tiny" style="color:#059669;font-weight:600">${x.credit_balance} pts</div>` : '';
+    const rem = `<b>${x.remaining}</b> / ${x.limit}${pts}`;
+    const browserBtn = x.browser_open
+      ? `<button class="btn btn-danger" style="margin-right:6px" onclick="closeBrowser('${x.name}',this)">Đóng Browser</button>`
+      : `<button class="btn" style="margin-right:6px;background:#f0fdf4;border-color:#86efac;color:#166534" onclick="openBrowser('${x.name}',this)" title="Mở profile Chrome này lên màn hình">🌐 Mở Browser</button>`;
+    const proxyCell = x.proxy
+      ? `<div style="display:flex;align-items:center;gap:6px">`
+        + `<span class="tiny" style="font-family:monospace;background:#f1f5f9;padding:2px 6px;border-radius:4px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block" title="${esc(x.proxy)}">${esc(x.proxy)}</span>`
+        + `<button class="btn" style="padding:2px 6px;font-size:11px" onclick="openEditProxy('${esc(x.name)}',&quot;${esc(x.proxy)}&quot;)" title="Sửa proxy">✏️</button>`
+        + `</div>`
+      : `<div style="display:flex;align-items:center;gap:6px">`
+        + `<span class="tiny" style="color:#94a3b8">Không dùng</span>`
+        + `<button class="btn" style="padding:2px 6px;font-size:11px" onclick="openEditProxy('${esc(x.name)}','')" title="Gán proxy">+ Proxy</button>`
+        + `</div>`;
     return [
       `<span class="account-id">${esc(x.name)}</span>`,
       accLabel(x)+warn,
+      proxyCell,
       badge,
       `<label class="sw"><input type="checkbox" ${x.scheduling?'checked':''} onchange="setSched('${x.name}',this.checked)"><i></i></label>`,
-      `<b>${x.used_today}</b> / ${x.limit}`,
+      rem,
       fmt(x.last_used_at),
       fmt(x.created_at),
-      `<button class="btn" style="margin-right:6px" onclick="verify('${x.name}',this)">Verify</button><button class="btn btn-danger" onclick="delAccount('${x.name}')">Delete</button>`
+      browserBtn+`<button class="btn" style="margin-right:6px" onclick="verify('${x.name}',this)">Verify</button><button class="btn btn-danger" onclick="delAccount('${x.name}')">Delete</button>`
     ];
   });
-  q('#accountsTable').innerHTML=table(['Account ID','Name','Status','Dispatch','Remaining','Last Used','Created At','Actions'],rows);
+  q('#accountsTable').innerHTML=table(['Account ID','Name','Proxy','Status','Dispatch','Remaining','Last Used','Created At','Actions'],rows);
+}
+
+function openEditProxy(name, currentProxy){
+  showDlg(`<h2>Proxy cho tài khoản: ${esc(name)}</h2>
+    <div class="hint" style="margin-bottom:12px;line-height:1.5">
+      Hỗ trợ các định dạng:<br/>
+      • <code>host:port</code> (không có mật khẩu)<br/>
+      • <code>host:port:user:pass</code> hoặc <code>user:pass@host:port</code> (có mật khẩu)<br/>
+      • <code>http://...</code> hoặc <code>socks5://...</code><br/>
+      <i>Để trống thì tài khoản này sẽ không dùng proxy riêng (hoặc dùng PROXY chung của hệ thống nếu có).</i>
+    </div>
+    <label>Cấu hình Proxy</label>
+    <input id="f_acc_proxy" value="${esc(currentProxy||'')}" placeholder="VD: 1.2.3.4:8080 hoặc host:port:user:pass" style="width:100%;box-sizing:border-box;font-family:monospace;margin-bottom:12px">
+    <div class="row" style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn" onclick="hide('dlg')">Hủy</button>
+      ${currentProxy ? `<button class="btn btn-danger" onclick="submitEditProxy('${esc(name)}', '')">Xóa Proxy</button>` : ''}
+      <button class="btn btn-p" onclick="submitEditProxy('${esc(name)}')">Lưu Proxy</button>
+    </div>`);
+}
+
+async function submitEditProxy(name, forcedValue){
+  const el = q('#f_acc_proxy');
+  const proxy = (forcedValue !== undefined) ? forcedValue : (el ? el.value.trim() : '');
+  hide('dlg');
+  try{
+    await api('/api/admin/accounts/'+encodeURIComponent(name),{method:'PATCH',body:{proxy: proxy}});
+  }catch(e){
+    alert('Lỗi cập nhật proxy: ' + e.message);
+  }
+  refresh();
+}
+
+async function openBrowser(name,btn){
+  btn.disabled=true;const old=btn.textContent;btn.textContent='Đang mở…';
+  try{await api('/api/admin/accounts/'+encodeURIComponent(name)+'/open_browser',{method:'POST'});refresh();}
+  catch(e){alert(e.message);btn.disabled=false;btn.textContent=old;}
+}
+
+async function closeBrowser(name,btn){
+  btn.disabled=true;const old=btn.textContent;btn.textContent='Đang đóng…';
+  try{await api('/api/admin/accounts/'+encodeURIComponent(name)+'/close_browser',{method:'POST'});refresh();}
+  catch(e){alert(e.message);btn.disabled=false;btn.textContent=old;}
 }
 
 async function verify(name,btn){
@@ -454,32 +522,75 @@ function openAddAccount(){
     <label>Google Email</label><input id="f_email" placeholder="xxx@yy.asia">
     <label>Password</label><input id="f_pass" type="password">
     <label>TOTP Secret (2FA)</label><input id="f_totp" placeholder="2FA secret">
+    <label>Proxy (tùy chọn: host:port hoặc host:port:user:pass)</label><input id="f_proxy" placeholder="Để trống nếu không dùng" style="font-family:monospace">
     <div class="row"><button class="btn" onclick="hide('dlg')">Cancel</button><button class="btn btn-p" onclick="submitAddAccount()">Start Login</button></div>`);
 }
 async function submitAddAccount(){
-  const body={name:q('#f_name').value.trim(),email:q('#f_email').value.trim(),password:q('#f_pass').value,totp:q('#f_totp').value.trim()};
+  const body={
+    name:q('#f_name').value.trim(),
+    email:q('#f_email').value.trim(),
+    password:q('#f_pass').value,
+    totp:q('#f_totp').value.trim(),
+    proxy:q('#f_proxy')?q('#f_proxy').value.trim():''
+  };
   if(!body.name||!body.email||!body.password)return alert('Please enter account name, email and password');
   try{await api('/api/admin/accounts',{method:'POST',body});}catch(e){return alert(e.message);}
   hide('dlg');refresh();
+}
+
+function openAddFacebookAccount(){
+  showDlg(`<h2>Add Facebook Account (Dola)</h2>
+    <div class="hint" style="margin-bottom:12px;line-height:1.5">Nhập danh sách tài khoản theo định dạng <b>tk|pass|2fa</b> hoặc <b>tk|pass|2fa|proxy</b> hoặc <b>tên|tk|pass|2fa|proxy</b> (mỗi dòng một tài khoản). Proxy hỗ trợ cả có mật khẩu (<code>host:port:user:pass</code>) và không mật khẩu (<code>host:port</code>). Để trống proxy thì không dùng. Hệ thống sẽ tự động tạo profile Chrome, kết nối qua proxy tương ứng, đăng nhập Facebook, giải mã 2FA và lưu cookies.</div>
+    <label>Danh sách tài khoản (tk|pass|2fa hoặc tk|pass|2fa|proxy)</label>
+    <textarea id="f_fb_lines" rows="6" style="width:100%;font-family:monospace;font-size:13px;padding:8px;border-radius:6px;border:1px solid #cbd5e1" placeholder="0912345678|Matkhau123|JBSWY3DPEHPK3PXP&#10;user2@gmail.com|MatkhauABC|KZXW654321JBSWY3|1.2.3.4:8080:user:pass"></textarea>
+    <div class="row" style="margin-top:12px"><button class="btn" onclick="hide('dlg')">Cancel</button><button class="btn btn-p" style="background:#1877F2;border-color:#1877F2" onclick="submitAddFacebookAccount()">Bắt đầu đăng nhập FB</button></div>`);
+}
+
+async function submitAddFacebookAccount(){
+  const lines=q('#f_fb_lines').value.trim();
+  if(!lines)return alert('Vui lòng nhập ít nhất một dòng tài khoản Facebook');
+  hide('dlg');
+  try{
+    await api('/api/admin/accounts/facebook',{method:'POST',body:{lines}});
+    alert('Đã gửi yêu cầu thêm tài khoản Facebook! Quá trình đăng nhập và lưu cookies đang chạy nền. Bạn có thể theo dõi trạng thái tài khoản trong danh sách.');
+  }catch(e){alert(e.message);}
+  refresh();
 }
 
 /* ---- Task Queue ---- */
 async function loadTasks(){
   const r=await api('/api/admin/tasks?limit=50');
   const sb={'queued':'<span class="badge b-gray">Queued</span>','processing':'<span class="badge b-blue">Processing</span>','completed':'<span class="badge b-green">Completed</span>','failed':'<span class="badge b-red">Failed</span>'};
-  const rows=r.tasks.map(t=>[
-    '<span class="tiny" title="'+esc(t.id)+'">'+t.id.replace('video_','').slice(0,10)+'</span>',
-    '<span class="prompt" title="'+esc(t.prompt||'')+'">'+esc(t.prompt||'')+'</span>',
-    t.account||'-',
-    t.api_key_name||'—',
-    (t.duration||10)+'s',
-    sb[t.status]||'<span class="badge b-gray">'+esc(t.status)+'</span>',
-    fmt(t.created_at),
-    t.video_url
-      ?'<div class="video-wrap"><a href="'+esc(t.video_url)+'" target="_blank">Open</a><button class="btn" onclick="playVideo(&quot;'+esc(t.video_url)+'&quot;)">Preview</button></div>'
-      :(t.status==='failed'?'<span class="tiny" title="'+esc(t.error||'')+'">'+esc((t.error||'').slice(0,30))+'</span>':'—')
-  ]);
-  q('#tasksTable').innerHTML=table(['Task ID','Prompt','Account','Client','Duration','Status','Created At','Video'],rows);
+  const rows=r.tasks.map(t=>{
+    let action = '—';
+    if(t.status==='processing'||t.status==='queued'){
+      action = '<button class="btn" style="color:#ef4444;border-color:#ef4444;padding:2px 8px;font-size:12px;cursor:pointer" onclick="cancelTask(&quot;'+esc(t.id)+'&quot;)">Cancel</button>';
+    }
+    return [
+      '<span class="tiny" title="'+esc(t.id)+'">'+t.id.replace('video_','').slice(0,10)+'</span>',
+      '<span class="prompt" title="'+esc(t.prompt||'')+'">'+esc(t.prompt||'')+'</span>',
+      t.account||'-',
+      t.api_key_name||'—',
+      (t.duration||10)+'s',
+      sb[t.status]||'<span class="badge b-gray">'+esc(t.status)+'</span>',
+      fmt(t.created_at),
+      t.video_url
+        ?'<div class="video-wrap"><a href="'+esc(t.video_url)+'" target="_blank">Open</a><button class="btn" onclick="playVideo(&quot;'+esc(t.video_url)+'&quot;)">Preview</button></div>'
+        :(t.status==='failed'?'<span class="tiny" title="'+esc(t.error||'')+'">'+esc((t.error||'').slice(0,30))+'</span>':'—'),
+      action
+    ];
+  });
+  q('#tasksTable').innerHTML=table(['Task ID','Prompt','Account','Client','Duration','Status','Created At','Video','Action'],rows);
+}
+
+async function cancelTask(id){
+  if(!confirm('Cancel task '+id+'?')) return;
+  try {
+    await api('/api/admin/tasks/'+encodeURIComponent(id)+'/cancel', {method:'POST'});
+    refresh();
+  } catch(e) {
+    alert(e.message);
+  }
 }
 
 function playVideo(url){q('#videoEl').src=url;show('videoModal');}
@@ -562,12 +673,25 @@ async function copy(text){
 
 function showDlg(html){q('#dlgBox').innerHTML=html;show('dlg');}
 
+async function loadConfig(){
+  try{
+    const cfg=await api('/api/admin/config');
+    if(q('#headlessCk')) q('#headlessCk').checked = !!cfg.headless;
+  }catch(e){}
+}
+
+async function toggleHeadless(on){
+  try{
+    await api('/api/admin/config',{method:'PATCH',body:{headless:on}});
+  }catch(e){alert(e.message);}
+}
+
 /* Init: auth check */
 (async function boot(){
-  try{ await api('/api/admin/accounts'); hide('loginMask'); refresh(); }
+  try{ await api('/api/admin/accounts'); hide('loginMask'); loadConfig(); refresh(); }
   catch(e){ /* 401 handled */ }
 })();
-timer=setInterval(()=>{if(autoRefresh)refresh();},10000);
+timer=setInterval(()=>{if(autoRefresh)refresh();},4000);
 </script>
 </body>
 </html>

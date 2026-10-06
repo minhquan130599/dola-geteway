@@ -1,3 +1,4 @@
+import json
 """Patchright persistent context launcher and per-account cookie importer."""
 import re
 from pathlib import Path
@@ -8,6 +9,9 @@ LAUNCH_ARGS = [
     "--disable-blink-features=AutomationControlled",
     "--no-first-run",
     "--no-default-browser-check",
+    "--password-store=basic",
+    "--disable-features=PasswordSaveConfirmation,PasswordLeakDetection,Translate,OptimizationGuideModelDownloading",
+    "--disable-save-password-bubble",
 ]
 
 _COOKIE_ATTRIBUTES = {
@@ -97,41 +101,138 @@ async def apply_account_cookies(context, account: str) -> bool:
     return True
 
 
-async def launch_account_context(p, account: str, headless: bool = None, use_extension: bool = False):
+
+def configure_clean_profile(profile_dir: Path):
+    """Configures Chrome profile Preferences to disable password prompts, translate, etc."""
+    default_dir = Path(profile_dir) / "Default"
+    default_dir.mkdir(parents=True, exist_ok=True)
+    prefs_file = default_dir / "Preferences"
+    prefs = {}
+    if prefs_file.exists():
+        try:
+            prefs = json.loads(prefs_file.read_text(encoding="utf-8"))
+        except Exception:
+            prefs = {}
+    prefs["credentials_enable_service"] = False
+    profile_dict = prefs.setdefault("profile", {})
+    profile_dict["password_manager_enabled"] = False
+    profile_dict["password_manager_leak_detection"] = False
+    profile_dict.setdefault("default_content_setting_values", {})["notifications"] = 2
+    autofill_dict = prefs.setdefault("autofill", {})
+    autofill_dict["profile_enabled"] = False
+    autofill_dict["credit_card_enabled"] = False
+    translate_dict = prefs.setdefault("translate", {})
+    translate_dict["enabled"] = False
+    prefs_file.write_text(json.dumps(prefs, indent=2), encoding="utf-8")
+
+def parse_proxy(raw: str | None) -> dict | None:
+    """Parses various proxy formats into Playwright proxy dict.
+    
+    Supported formats:
+    - host:port
+    - http://host:port
+    - socks5://host:port
+    - host:port:user:pass
+    - user:pass@host:port
+    - http://user:pass@host:port
+    - socks5://user:pass@host:port
+    """
+    if not raw or not raw.strip():
+        return None
+    raw = raw.strip()
+    scheme = "http"
+    if "://" in raw:
+        scheme, remainder = raw.split("://", 1)
+        scheme = scheme.lower()
+    else:
+        remainder = raw
+
+    if "@" in remainder:
+        auth_part, host_part = remainder.split("@", 1)
+        if ":" in auth_part:
+            u, p = auth_part.split(":", 1)
+        else:
+            u, p = auth_part, ""
+        return {"server": f"{scheme}://{host_part}", "username": u, "password": p}
+
+    parts = remainder.split(":")
+    if len(parts) == 4:
+        host, port, u, p = parts
+        return {"server": f"{scheme}://{host}:{port}", "username": u, "password": p}
+    elif len(parts) == 2:
+        host, port = parts
+        return {"server": f"{scheme}://{host}:{port}"}
+
+    return {"server": f"{scheme}://{remainder}"}
+
+
+async def launch_account_context(p, account: str, headless: bool = None, use_extension: bool = False, proxy: str | None = None):
     """Launches accounts/<account> profile, returns BrowserContext. Caller must close.
 
     p: async_playwright() instance
     headless: None = uses config.HEADLESS
+    proxy: None = uses account proxy from DB, then config.PROXY
     """
     profile_dir = Path("accounts") / account
+    configure_clean_profile(profile_dir)
     if not profile_dir.exists():
         raise FileNotFoundError(
             f"Account profile does not exist: {profile_dir} (run python add_account.py {account} first)"
         )
     launch_headless = config.HEADLESS if headless is None else headless
     args = list(LAUNCH_ARGS)
+    pw_headless = False
+    if launch_headless:
+        # Chrome's new headless mode supports extensions and background debugger
+        args.append("--headless=new")
+        pw_headless = False
+    else:
+        pw_headless = False
+
     if use_extension:
         if not config.EXTENSION_ENABLED:
             raise RuntimeError("Dola extension is disabled (DOLA_EXTENSION_ENABLED=0)")
         extension_dir = Path(config.EXTENSION_DIR).resolve()
         if not extension_dir.exists():
             raise FileNotFoundError(f"Dola extension directory does not exist: {extension_dir}")
-        # Chromium debugger extension requires headed window to intercept skill/action-bar responses
-        launch_headless = False
         args.extend([
             f"--disable-extensions-except={extension_dir}",
             f"--load-extension={extension_dir}",
         ])
     kwargs = {
-        "headless": launch_headless,
+        "headless": pw_headless,
         "args": args,
-        "locale": "ja-JP",
-        "timezone_id": "Asia/Tokyo",
+        "locale": config.LOCALE,
+        "timezone_id": config.TIMEZONE,
     }
-    if config.PROXY:
-        kwargs["proxy"] = {"server": config.PROXY}
+
+    # Proxy selection: explicit arg > account proxy in DB > global config.PROXY
+    proxy_to_use = proxy
+    if not proxy_to_use:
+        try:
+            import sqlite3
+            with sqlite3.connect("pool_usage.db") as conn:
+                conn.row_factory = sqlite3.Row
+                row = conn.execute("SELECT proxy FROM accounts_meta WHERE name=?", (account,)).fetchone()
+                if row and "proxy" in row.keys() and row["proxy"]:
+                    proxy_to_use = row["proxy"].strip()
+        except Exception:
+            pass
+    if not proxy_to_use and config.PROXY:
+        proxy_to_use = config.PROXY.strip()
+
+    if proxy_to_use:
+        parsed = parse_proxy(proxy_to_use)
+        if parsed:
+            kwargs["proxy"] = parsed
+
     context = await p.chromium.launch_persistent_context(str(profile_dir), **kwargs)
     try:
+        await context.add_cookies([
+            {"name": "tt_locale", "value": "vi", "domain": ".dola.com", "path": "/", "secure": True},
+            {"name": "i18n_redirect", "value": "vi", "domain": ".dola.com", "path": "/", "secure": True},
+            {"name": "language", "value": "vi", "domain": ".dola.com", "path": "/", "secure": True},
+        ])
         await apply_account_cookies(context, account)
     except Exception:
         await context.close()

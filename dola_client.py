@@ -41,7 +41,10 @@ CREDIT_FAIL_PATTERN = re.compile(
     r"余额不足|餘額不足|额度不足|額度不足|额度耗尽|額度耗盡|"
     r"生成できません|残高不足|"
     r"生成할 수 없|한도.*부족|부족.*한도|"
-    r"insufficient|unable to (generate|create)|failed to (generate|create)",
+    r"insufficient|unable to (generate|create)|failed to (generate|create)|"
+    r"Cần dùng \d+ điểm tín dụng|không đủ (?:điểm|tín dụng)|"
+    r"Bạn chỉ còn \d+.*(?:thay đổi|thử lại)|Bạn vẫn còn 0 điểm tín dụng|"
+    r"hết (?:lượt|điểm|tín dụng)|vượt quá (?:giới hạn|hạn mức)",
     re.IGNORECASE,
 )
 

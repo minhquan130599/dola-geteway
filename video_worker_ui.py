@@ -5,6 +5,12 @@ import random
 import re
 import sys
 import time
+
+# Force UTF-8 for stdout/stderr on Windows (prevents 'charmap' codec errors with Vietnamese/CJK text)
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 from pathlib import Path
 
 import aiohttp
@@ -20,7 +26,27 @@ from video_worker import POLL_JS, RiskControlError, _download, extract_unwaterma
 # Daily limit pattern matching response text
 DAILY_LIMIT_PATTERN = re.compile(
     r"動画生成の\s*1日あたりの上限|每日(?:视频|影片)?生成.*(?:上限|限额|额度)|"
-    r"daily.*(?:limit|quota)|(?:limit|quota).*per\s*day",
+    r"daily.*(?:limit|quota)|(?:limit|quota).*per\s*day|"
+    r"giới hạn (?:video )?hàng ngày|hết lượt (?:tạo video )?hôm nay",
+    re.IGNORECASE,
+)
+
+# Clarification pattern matching Dola prompt confirmation / duration questions
+CLARIFICATION_PATTERN = re.compile(
+    r"supports\s+durations\s+from|nearest\s+supported\s+duration|"
+    r"動画生成ツールは\s*\d+\s*秒から|ご要望の動画の長さを選択|"
+    r"動画生成に必要な情報が不足|長さ[：:].*秒の間でご指定|"
+    r"请选择.*(?:视频)?时长|视频生成目前支持",
+    re.IGNORECASE,
+)
+
+# Pattern detecting Dola proceeding on its own (informational, not asking for input)
+PROCEEDING_PATTERN = re.compile(
+    r"I'll create|I will create|I'll generate|I will generate|"
+    r"creating (?:a |an |the )?(?:stylized|video|animation)|"
+    r"Video generation (?:is |has |cur)|"
+    r"作成します|生成します|生成を開始|生成中|動画を作成|"
+    r"Video sẽ được tạo|hoàn tất trong vòng|Tôi sẽ gửi cho bạn",
     re.IGNORECASE,
 )
 
@@ -33,7 +59,79 @@ class CreditInsufficientError(Exception):
     """Insufficient points prior to generation."""
 
 
-VIDEO_BTN = "text=動画を作成"          # Entry point button in ja-JP locale
+async def activate_video_mode(page) -> None:
+    """Activates Video Generation mode in Dola chat UI.
+    
+    Robust across all locales: English ('Create Videos', 'Create Video'),
+    Vietnamese ('Tạo video'), Japanese ('動画を作成'), Korean ('비디오 만들기'), Chinese ('创建视频').
+    Skips if video mode is already active.
+    """
+    # 1. Check if video mode is already active
+    # (Mode tag e.g. [ ▶ Create Videos × ], or Model / Ratio selectors visible in toolbar)
+    model_sel = page.locator(
+        "button:has-text('Model'), [role='button']:has-text('Model'), "
+        "button:has-text('Mô hình'), [role='button']:has-text('Mô hình'), "
+        "button:has-text('モデル'), [role='button']:has-text('モデル')"
+    ).first
+    if not (await model_sel.count() and await model_sel.is_visible()):
+        model_sel = page.get_by_text(re.compile(r"^(Model|Mô hình|モデル|Seedance)", re.I)).first
+
+    if await model_sel.count() and await model_sel.is_visible():
+        return
+
+    mode_tag = page.locator("[class*='tag'], [class*='mode']").filter(
+        has_text=re.compile(r"Create Videos?|Tạo video|動画を作成|비디오 만들기|创建视频", re.I)
+    ).first
+    if await mode_tag.count() and await mode_tag.is_visible():
+        return
+
+    # 2. Find and click video creation button in toolbar
+    btn_selectors = [
+        "button:has-text('Create Videos')",
+        "button:has-text('Create Video')",
+        "[role='button']:has-text('Create Videos')",
+        "[role='button']:has-text('Create Video')",
+        "button:has-text('Tạo video')",
+        "[role='button']:has-text('Tạo video')",
+        "button:has-text('動画を作成')",
+        "[role='button']:has-text('動画を作成')",
+        "button:has-text('비디오 만들기')",
+        "[role='button']:has-text('비디오 만들기')",
+        "button:has-text('创建视频')",
+        "[role='button']:has-text('创建视频')",
+        "button:has-text('Videos')",
+        "[role='button']:has-text('Videos')",
+    ]
+
+    for sel in btn_selectors:
+        try:
+            cand = page.locator(sel).first
+            if await cand.count() and await cand.is_visible():
+                anc = cand.locator("xpath=ancestor-or-self::*[@role='button' or self::button or contains(@class, 'item') or contains(@class, 'btn')][1]")
+                target = anc.first if (await anc.count() and await anc.first.is_visible()) else cand
+                await target.scroll_into_view_if_needed()
+                await target.click(timeout=3000)
+                await page.wait_for_timeout(1000)
+                return
+        except Exception:
+            pass
+
+    # 3. Fallback: regex search across any text element with button ancestor
+    try:
+        cand = page.get_by_text(re.compile(r"^(Create Videos?|Tạo video|動画を作成|비디오 만들기|Videos)$", re.I)).first
+        if await cand.count() and await cand.is_visible():
+            anc = cand.locator("xpath=ancestor-or-self::*[@role='button' or self::button or contains(@class, 'item') or contains(@class, 'btn')][1]")
+            target = anc.first if (await anc.count() and await anc.first.is_visible()) else cand
+            await target.scroll_into_view_if_needed()
+            await target.click(timeout=3000)
+            await page.wait_for_timeout(1000)
+            return
+    except Exception:
+        pass
+
+    raise RuntimeError("Could not find or activate Video button in toolbar (supports EN/VI/JA/KO/ZH)")
+
+
 CAPTCHA_FRAME_KEY = "bdcaptcha.html"   # Captcha verifycenter iframe
 
 
@@ -95,7 +193,8 @@ async ({msToken, fp}) => {
   const walk = (v) => {
     if (typeof v === "string") {
       if ((v.includes("ポイント") || v.includes("积分") || v.toLowerCase().includes("points")
-        || v.includes("上限") || v.includes("limit")) && v.length < 1200 && !seen.has(v)) {
+        || v.includes("tín dụng") || v.includes("điểm") || v.includes("hôm nay")
+        || v.includes("上限") || v.includes("limit") || v.includes("giới hạn")) && v.length < 1200 && !seen.has(v)) {
         seen.add(v); texts.push(v);
       }
       try {
@@ -244,6 +343,9 @@ _BALANCE_PATTERNS = (
     re.compile(r"(?:本日は|今日(?:还剩|剩余)?|今天).*?(\d+)\s*(?:ポイント|积分|points?)", re.I),
     re.compile(r"(?:remaining|left)\s*[:：]?\s*(\d+)\s*points?", re.I),
     re.compile(r"(?:还剩|剩余|还有)\s*(\d+)\s*(?:积分|点)", re.I),
+    re.compile(r"Bạn (?:vẫn )?còn (\d+)\s*(?:điểm|hôm nay|điểm tín dụng)", re.I),
+    re.compile(r"Bạn chỉ còn (\d+)\s*(?:điểm|hôm nay|điểm tín dụng)", re.I),
+    re.compile(r"còn lại (\d+)\s*điểm", re.I),
 )
 
 
@@ -280,14 +382,23 @@ async def _preflight_balance(page, ms_token: str, fp: str, required: int) -> dic
 
 
 async def poll_conversation(account: str, page, context, conversation_id: str,
-                            timeout: int, on_poll=None, on_balance=None) -> dict:
-    """Polls accepted conversation for video completion."""
+                            timeout: int, on_poll=None, on_balance=None,
+                            duration: int = None, check_cancelled=None) -> dict:
+    """Polls accepted conversation for video completion with clarification auto-reply and cancellation checks."""
     cookies = await context.cookies("https://www.dola.com")
     ms_token, fp = cookie_value(cookies, "msToken"), cookie_value(cookies, "s_v_web_id")
     start = time.time()
     last_callback = 0.0
+    auto_replied = False
+    auto_reply_time = 0.0
     while time.time() - start < timeout:
+        if check_cancelled and check_cancelled():
+            print(f"[{account}] Task was cancelled or marked failed in database, stopping poll...", flush=True)
+            raise asyncio.CancelledError("Task was cancelled or marked failed in database")
         await asyncio.sleep(5)
+        if check_cancelled and check_cancelled():
+            print(f"[{account}] Task was cancelled or marked failed in database, stopping poll...", flush=True)
+            raise asyncio.CancelledError("Task was cancelled or marked failed in database")
         try:
             poll = await asyncio.wait_for(page.evaluate(
                 POLL_JS, {"conversationId": conversation_id, "msToken": ms_token, "fp": fp}), timeout=30)
@@ -304,8 +415,8 @@ async def poll_conversation(account: str, page, context, conversation_id: str,
                 on_balance(balance, source)
             if DAILY_LIMIT_PATTERN.search(text):
                 raise AccountLimitedError(f"Account daily limit reached: {text[:120]}")
-            if CREDIT_FAIL_PATTERN.search(text):
-                raise CreditError(f"Insufficient quota: {text[:80]}")
+            if CREDIT_FAIL_PATTERN.search(text) and not PROCEEDING_PATTERN.search(text):
+                raise CreditInsufficientError(f"Insufficient quota: {text[:120]}")
         if poll.get("videos"):
             video_models = poll.get("videoModels", [])
             url = extract_unwatermarked_url(
@@ -315,21 +426,51 @@ async def poll_conversation(account: str, page, context, conversation_id: str,
             print(f"[{account}] Downloaded {local} ({local.stat().st_size / 1e6:.1f} MB)", flush=True)
             return {"video_url": url, "local_path": str(local),
                     "conversation_id": conversation_id, "account": account}
+
+        # Check for Dola clarification requests (e.g. asking for duration confirmation)
+        is_clarifying = poll.get("isClarifying") or any(CLARIFICATION_PATTERN.search(t) for t in poll.get("texts", []))
+        if is_clarifying:
+            clarify_text = poll.get("clarifyingText") or (poll.get("texts") or [""])[0]
+            # If Dola's text indicates it's proceeding (not asking), skip auto-reply
+            if PROCEEDING_PATTERN.search(clarify_text):
+                if not auto_replied:
+                    auto_replied = True  # Prevent future auto-replies
+                    print(f"[{account}] Dola flagged clarifying but is proceeding: '{clarify_text[:100]}', continuing poll...", flush=True)
+            elif not auto_replied:
+                auto_replied = True
+                auto_reply_time = time.time()
+                reply_dur = duration or 10
+                print(f"[{account}] Dola requested duration clarification: '{clarify_text[:80]}'. Auto-replying with '{reply_dur}s'...", flush=True)
+                try:
+                    box = page.locator("textarea, [contenteditable='true']").first
+                    if await box.count():
+                        await box.click(timeout=3000)
+                        await page.keyboard.type(f"{reply_dur}s", delay=80)
+                        await page.wait_for_timeout(400)
+                        await page.keyboard.press("Enter")
+                        print(f"[{account}] Sent auto-confirmation '{reply_dur}s' to chat input", flush=True)
+                        await asyncio.sleep(4)
+                        continue
+                except Exception as ex:
+                    print(f"[{account}] Failed to auto-reply to clarification: {ex}", flush=True)
+
         print(f"  ...Generating ({int(time.time() - start)}s)", flush=True)
     raise TimeoutError(f"No video generated within {timeout}s (conversation_id={conversation_id})")
 
 
 async def resume_video(account: str, conversation_id: str, timeout: int,
-                       on_poll=None, on_balance=None) -> dict:
+                       on_poll=None, on_balance=None, duration: int = None,
+                       check_cancelled=None) -> dict:
     """Recovers accepted session after server restart without re-sending prompt."""
     async with async_playwright() as p:
-        context = await launch_account_context(p, account, headless=False, use_extension=True)
+        context = await launch_account_context(p, account, headless=None, use_extension=True)
         try:
             page = context.pages[0] if context.pages else await context.new_page()
             await page.goto(f"https://www.dola.com/chat/{conversation_id}",
                             timeout=60000, wait_until="domcontentloaded")
             await page.wait_for_timeout(5000)
-            return await poll_conversation(account, page, context, conversation_id, timeout, on_poll, on_balance)
+            return await poll_conversation(account, page, context, conversation_id, timeout, on_poll, on_balance,
+                                           duration=duration, check_cancelled=check_cancelled)
         finally:
             await context.close()
 
@@ -338,7 +479,8 @@ async def generate_video(account: str, prompt: str, ratio: str = None,
                          duration: int = None, timeout: int = None,
                          model: str = "seedance_v2.0", use_extension: bool = True,
                          on_conversation_id=None, on_poll=None, on_balance=None,
-                         reference_image_paths: list[str] | None = None) -> dict:
+                         reference_image_paths: list[str] | None = None,
+                         check_cancelled=None) -> dict:
     """Full generation flow via UI automation."""
     timeout = timeout or config.VIDEO_TIMEOUT
     model_key = model.lower().replace("-", "_")
@@ -359,7 +501,7 @@ async def generate_video(account: str, prompt: str, ratio: str = None,
         timeout = max(timeout, config.REFERENCE_VIDEO_TIMEOUT)
     async with async_playwright() as p:
         context = await launch_account_context(
-            p, account, headless=False if use_extension else None,
+            p, account, headless=None,
             use_extension=use_extension)
         try:
             page = context.pages[0] if context.pages else await context.new_page()
@@ -367,57 +509,118 @@ async def generate_video(account: str, prompt: str, ratio: str = None,
             await page.wait_for_timeout(5000)
             cookies = await context.cookies("https://www.dola.com")
             ms_token, fp = cookie_value(cookies, "msToken"), cookie_value(cookies, "s_v_web_id")
-            await _preflight_balance(page, ms_token, fp, config.VIDEO_REQUIRED_POINTS)
+            req_points = (
+                4 if model_key == "seedance_v2.5" and (duration or 10) <= 10
+                else 6 if model_key == "seedance_v2.5"
+                else config.VIDEO_REQUIRED_POINTS
+            )
+            await _preflight_balance(page, ms_token, fp, req_points)
 
             # ---- UI Submission ----
-            await page.click(VIDEO_BTN)
+            await activate_video_mode(page)
             await page.wait_for_timeout(1500)
             if reference_image_paths:
                 await attach_reference_images(page, reference_image_paths)
+
             # Select model in UI
             try:
                 current_model = None
-                for label in ("モデル 2.0高速", "モデル 2.5"):
-                    loc = page.get_by_text(label, exact=True).first
-                    if await loc.count() and await loc.is_visible():
-                        current_model = loc
+                for cand in [
+                    page.locator("button:has-text('Model'), [role='button']:has-text('Model')"),
+                    page.locator("button:has-text('Mô hình'), [role='button']:has-text('Mô hình')"),
+                    page.locator("button:has-text('モデル'), [role='button']:has-text('モデル')"),
+                    page.locator("button:has-text('Seedance'), [role='button']:has-text('Seedance')"),
+                    page.get_by_text(re.compile(r"^(Model|Mô hình|モデル|Seedance)", re.I)),
+                ]:
+                    if await cand.count() and await cand.first.is_visible():
+                        current_model = cand.first
                         break
-                if current_model is None:
-                    current_model = page.get_by_text(re.compile(r"^モデル "), exact=False).first
-                await current_model.click(timeout=5000)
-                await page.wait_for_timeout(500)
-                options = (("Dreamina Seedance 2.5",)
-                           if model_key == "seedance_v2.5"
-                           else ("Dreamina Seedance 2.0高速", "Dreamina Seedance 2.0", "Seedance2.0Fast"))
-                selected = False
-                for option_text in options:
-                    loc = page.get_by_text(option_text, exact=False).first
-                    if await loc.count() and await loc.is_visible():
-                        await loc.click(timeout=5000)
-                        selected = True
-                        break
-                if not selected:
-                    raise RuntimeError("Model option not found")
-                await page.wait_for_timeout(500)
+
+                if current_model is not None:
+                    await current_model.scroll_into_view_if_needed()
+                    await current_model.click(timeout=5000)
+                    await page.wait_for_timeout(600)
+                    options = (
+                        ("Dreamina Seedance 2.5", "Seedance 2.5", "Seedance2.5", "Model 2.5", "Mô hình 2.5", "モデル 2.5")
+                        if model_key == "seedance_v2.5"
+                        else (
+                            "Dreamina Seedance 2.0 Fast", "Dreamina Seedance 2.0", "Dreamina Seedance 2.0高速",
+                            "Seedance 2.0 Fast", "Seedance 2.0", "Seedance2.0Fast", "Seedance2.0",
+                            "Model 2.0 Fast", "Model 2.0", "Mô hình 2.0", "モデル 2.0高速"
+                        )
+                    )
+                    selected = False
+                    for option_text in options:
+                        loc = page.get_by_text(option_text, exact=False).first
+                        if await loc.count() and await loc.is_visible():
+                            await loc.click(timeout=5000)
+                            selected = True
+                            break
+                    if not selected:
+                        raise RuntimeError(f"Model option not found in dropdown (options: {options[:3]})")
+                    await page.wait_for_timeout(500)
             except Exception as e:
                 raise RuntimeError(f"Failed to set model ({model_key}): {str(e)[:120]}") from e
+
+            # Select ratio in UI
             if ratio:
                 try:
-                    await page.click("text=比率", timeout=3000)
-                    await page.wait_for_timeout(500)
-                    await page.click(f"text={ratio}", timeout=3000)
+                    ratio_btn = None
+                    for sel in [
+                        "button:has-text('Ratio')",
+                        "[role='button']:has-text('Ratio')",
+                        "button:has-text('Tỷ lệ')",
+                        "[role='button']:has-text('Tỷ lệ')",
+                        "button:has-text('Tỉ lệ')",
+                        "[role='button']:has-text('Tỉ lệ')",
+                        "button:has-text('比率')",
+                        "[role='button']:has-text('比率')",
+                        "button:has-text('비율')",
+                        "[role='button']:has-text('비율')",
+                    ]:
+                        cand = page.locator(sel).first
+                        if await cand.count() and await cand.is_visible():
+                            ratio_btn = cand
+                            break
+                    if not ratio_btn:
+                        cand = page.get_by_text(re.compile(r"^(Ratio|Tỷ lệ|Tỉ lệ|比率|비율)", re.I)).first
+                        if await cand.count() and await cand.is_visible():
+                            ratio_btn = cand
+
+                    if ratio_btn:
+                        await ratio_btn.scroll_into_view_if_needed()
+                        await ratio_btn.click(timeout=3000)
+                        await page.wait_for_timeout(600)
+                        ratio_opt = page.get_by_text(ratio, exact=True).first
+                        if not (await ratio_opt.count() and await ratio_opt.is_visible()):
+                            ratio_opt = page.locator(f"[role='tooltip'] :text('{ratio}'), .semi-popover :text('{ratio}'), :text('{ratio}')").first
+                        if await ratio_opt.count() and await ratio_opt.is_visible():
+                            await ratio_opt.click(timeout=3000)
+                            await page.wait_for_timeout(500)
                 except Exception as e:
                     print(f"  (Failed to set ratio, using default: {str(e)[:80]})", flush=True)
+
+            # Select duration in UI
             if duration:
                 try:
-                    await page.click(f"text={duration}s", timeout=3000)
-                except Exception:
-                    try:  # Open duration dropdown
-                        await page.get_by_text(re.compile(r"^\d+s$")).first.click(timeout=3000)
+                    duration_btn = page.get_by_text(re.compile(r"^\d+s$|^\d+秒$|^\d+\s*giây$", re.I)).first
+                    current_dur_text = ""
+                    if await duration_btn.count() and await duration_btn.is_visible():
+                        current_dur_text = (await duration_btn.inner_text()).strip()
+
+                    target_text = f"{duration}s"
+                    if current_dur_text != target_text:
+                        if await duration_btn.count():
+                            await duration_btn.click(timeout=3000)
+                            await page.wait_for_timeout(500)
+                        opt = page.get_by_text(re.compile(rf"^{duration}s$|^{duration}秒$|^{duration}\s*giây$", re.I)).first
+                        if await opt.count() and await opt.is_visible():
+                            await opt.click(timeout=3000)
+                        else:
+                            await page.locator(f"button:has-text('{target_text}'), :text('{target_text}')").first.click(timeout=3000)
                         await page.wait_for_timeout(500)
-                        await page.click(f"text={duration}s", timeout=3000)
-                    except Exception as e:
-                        print(f"  (Failed to set duration, using default: {str(e)[:80]})", flush=True)
+                except Exception as e:
+                    print(f"  (Failed to set duration, using default: {str(e)[:80]})", flush=True)
             box = await page.query_selector("textarea") or await page.query_selector('[contenteditable="true"]')
             await box.click()
             await page.keyboard.type(prompt, delay=100)
@@ -464,7 +667,10 @@ async def generate_video(account: str, prompt: str, ratio: str = None,
             deadline = time.time() + timeout
             if on_conversation_id:
                 on_conversation_id(account, conv_id, deadline)
-            return await poll_conversation(account, page, context, conv_id, timeout, on_poll, on_balance)
+            return await poll_conversation(
+                account, page, context, conv_id, timeout, on_poll, on_balance,
+                duration=duration, check_cancelled=check_cancelled
+            )
         finally:
             await context.close()
 

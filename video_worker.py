@@ -4,6 +4,12 @@ import base64
 import json
 import sys
 import time
+
+# Force UTF-8 for stdout/stderr on Windows (prevents 'charmap' codec errors with Vietnamese/CJK text)
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 from pathlib import Path
 
 import aiohttp
@@ -62,7 +68,13 @@ async ({conversationId, msToken, fp}) => {
   const texts = [];
   const videos = [];
   const videoModels = [];
+  let isClarifying = false;
+  let clarifyingText = "";
   for (const msg of messages) {
+    const ext = msg.ext || {};
+    // Track per-message: last message's state wins (not sticky)
+    const msgClarifying = ext.is_creation_clarifying === "1" || ext.ai_creation_res_code === "710082041";
+    isClarifying = msgClarifying;
     let content = msg.content;
     if (typeof content === "string") {
       try { content = JSON.parse(content); } catch (e) { continue; }
@@ -70,7 +82,10 @@ async ({conversationId, msToken, fp}) => {
     if (!Array.isArray(content)) continue;
     for (const block of content) {
       const text = (((block.content || {}).text_block) || {}).text || "";
-      if (text) texts.push(text.slice(0, 120));
+      if (text) {
+        texts.push(text.slice(0, 300));
+        if (isClarifying && !clarifyingText) clarifyingText = text;
+      }
       if (block.block_type !== 2074) continue;
       const creations = (((block.content || {}).creation_block) || {}).creations || [];
       for (const cre of creations) {
@@ -83,7 +98,7 @@ async ({conversationId, msToken, fp}) => {
       }
     }
   }
-  return {ok: true, status: resp.status, texts, videos, videoModels};
+  return {ok: true, status: resp.status, texts, videos, videoModels, isClarifying, clarifyingText};
 }
 """
 

@@ -1,4 +1,4 @@
-﻿const DEBUGGER_VERSION = "1.3";
+const DEBUGGER_VERSION = "1.3";
 const DOUBAO_SKILL_PACK_URL_PART = "doubao.com/samantha/skill/pack";
 const DOLA_SKILL_PACK_URL_PART = "dola.com/samantha/skill/pack";
 const ACTION_BAR_CONF_URL_PART = ".com/alice/slot/action_bar_v3/get_item_conf";
@@ -697,11 +697,19 @@ function patchDurationSelector(value, seen = new Set()) {
       && options.some((option) => String(option?.option_key || option?.value || "") === "10"));
 
   if (looksLikeDuration && options.length) {
-    const has30s = options.some((option) => String(option?.option_key || option?.value || "") === "30");
-    if (!has30s) {
+    const has15s = options.some((option) => String(option?.option_key || option?.value || "") === "15");
+    if (!has15s) {
       const tenSecondIndex = options.findIndex((option) => String(option?.option_key || option?.value || "") === "10");
       const insertIndex = tenSecondIndex >= 0 ? tenSecondIndex + 1 : options.length;
-      options.splice(insertIndex, 0, createThirtySecondOption(options));
+      options.splice(insertIndex, 0, createDurationOption(options, "15", "15s"));
+      changed = true;
+    }
+
+    const has30s = options.some((option) => String(option?.option_key || option?.value || "") === "30");
+    if (!has30s) {
+      const fifteenSecondIndex = options.findIndex((option) => String(option?.option_key || option?.value || "") === "15");
+      const insertIndex = fifteenSecondIndex >= 0 ? fifteenSecondIndex + 1 : options.length;
+      options.splice(insertIndex, 0, createDurationOption(options, "30", "30s"));
       changed = true;
     }
   }
@@ -722,7 +730,7 @@ function patchDurationSelector(value, seen = new Set()) {
   return changed;
 }
 
-function createThirtySecondOption(optionList) {
+function createDurationOption(optionList, optionKey, displayText) {
   const maxId = optionList.reduce((maxValue, option) => {
     const id = Number(option?.id);
     return Number.isFinite(id) ? Math.max(maxValue, id) : maxValue;
@@ -730,9 +738,9 @@ function createThirtySecondOption(optionList) {
 
   return {
     id: maxId + 1,
-    display_text: "30s",
+    display_text: displayText,
     message_text: "",
-    option_key: "30"
+    option_key: optionKey
   };
 }
 

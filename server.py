@@ -7,6 +7,14 @@ GET  /videos/<file>          -> Static video download server
 
 Admin Dashboard: GET / -> web/index.html; Admin API /api/admin/*
 """
+import sys
+
+# Force UTF-8 for stdout/stderr on Windows (prevents 'charmap' codec errors with Vietnamese/CJK text)
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 import asyncio
 import hashlib
 import json
@@ -77,6 +85,7 @@ class KeyConcurrencyLimiter:
 
 
 key_limiter = KeyConcurrencyLimiter()
+RUNNING_TASKS: dict[str, asyncio.Task] = {}
 
 
 # ===== Authentication =====
@@ -178,13 +187,16 @@ def _resolve_ratio(size, ratio):
 
 
 async def _run_task(task_id, model, prompt, ratio, duration, reference_images, client):
+    RUNNING_TASKS[task_id] = asyncio.current_task()
     api_key_hash = client.get("api_key_hash")
     acquired = False
     reference_root = None
     try:
         await key_limiter.acquire(api_key_hash, client.get("concurrency_limit", 0))
         acquired = True
-        store.update(task_id, status="processing", started_at=time.time())
+
+        def on_account_assigned(account):
+            store.update(task_id, status="processing", account=account, started_at=time.time())
 
         def on_conversation_id(account, conversation_id, deadline_at):
             store.update(task_id, status="processing", account=account,
@@ -194,12 +206,18 @@ async def _run_task(task_id, model, prompt, ratio, duration, reference_images, c
         def on_poll(now):
             store.update(task_id, last_poll_at=now)
 
+        def check_cancelled():
+            t = store.get(task_id)
+            return not t or t.get("status") in ("failed", "cancelled")
+
         reference_root, reference_paths = await download_reference_images(
             reference_images or [], task_id)
         result = await pool.generate_video(
             prompt, ratio, duration, model,
             on_conversation_id=on_conversation_id, on_poll=on_poll,
-            reference_image_paths=reference_paths)
+            reference_image_paths=reference_paths,
+            check_cancelled=check_cancelled,
+            on_account_assigned=on_account_assigned)
         public_url = f"{config.PUBLIC_BASE}/videos/{Path(result['local_path']).name}"
         store.update(task_id, status="completed", video_url=public_url,
                      account=result.get("account"), last_poll_at=time.time(),
@@ -207,10 +225,18 @@ async def _run_task(task_id, model, prompt, ratio, duration, reference_images, c
     except (AllAccountsLimitedError, AllAccountsQuotaBlockedError) as e:
         store.update(task_id, status="failed", error=str(e)[:500],
                      failure_code="429", finished_at=time.time())
+    except asyncio.CancelledError:
+        curr = store.get(task_id)
+        if not curr or curr.get("status") not in ("completed", "failed"):
+            store.update(task_id, status="failed", error="Cancelled by user",
+                         finished_at=time.time())
     except Exception as e:
-        store.update(task_id, status="failed", error=str(e)[:500],
-                     finished_at=time.time())
+        curr = store.get(task_id)
+        if not curr or curr.get("status") not in ("completed", "failed"):
+            store.update(task_id, status="failed", error=str(e)[:500],
+                         finished_at=time.time())
     finally:
+        RUNNING_TASKS.pop(task_id, None)
         if reference_root:
             shutil.rmtree(reference_root, ignore_errors=True)
         if acquired:
@@ -286,8 +312,13 @@ async def _resume_task(row: dict):
         def on_poll(now):
             store.update(task_id, last_poll_at=now)
 
+        def check_cancelled():
+            t = store.get(task_id)
+            return not t or t.get("status") in ("failed", "cancelled")
+
         result = await pool.resume_video(
-            row["account"], row["conversation_id"], remaining, on_poll=on_poll)
+            row["account"], row["conversation_id"], remaining, on_poll=on_poll,
+            duration=row.get("duration"), check_cancelled=check_cancelled)
         public_url = f"{config.PUBLIC_BASE}/videos/{Path(result['local_path']).name}"
         store.update(task_id, status="completed", video_url=public_url,
                      account=result.get("account"), last_poll_at=time.time(),
@@ -392,6 +423,7 @@ class AccountPatch(BaseModel):
     scheduling: bool | None = None
     note: str | None = None
     email: str | None = None
+    proxy: str | None = None
 
 
 class AccountAdd(BaseModel):
@@ -399,6 +431,11 @@ class AccountAdd(BaseModel):
     email: str
     password: str
     totp: str
+    proxy: str | None = None
+
+
+class FacebookAccountAdd(BaseModel):
+    lines: str
 
 
 class KeyCreate(BaseModel):
@@ -427,10 +464,51 @@ async def admin_login(body: AdminLogin):
     raise HTTPException(401, "wrong admin key")
 
 
+ACTIVE_USER_BROWSERS: dict[str, dict] = {}
+
+
+async def _run_user_browser(account: str):
+    profile_dir = Path("accounts") / account
+    if not profile_dir.exists():
+        return
+    lock = pool._locks.setdefault(account, asyncio.Lock())
+    if lock.locked():
+        raise RuntimeError("Tài khoản đang bận (đang tạo video hoặc đã mở trình duyệt)")
+
+    async with lock:
+        from patchright.async_api import async_playwright
+        from browser import launch_account_context
+        async with async_playwright() as p:
+            ctx = await launch_account_context(p, account, headless=False, use_extension=True)
+            ACTIVE_USER_BROWSERS[account] = {"context": ctx}
+            try:
+                page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+                await page.goto("https://www.dola.com/chat", wait_until="domcontentloaded")
+                while True:
+                    await asyncio.sleep(1)
+                    if not ctx.pages or account not in ACTIVE_USER_BROWSERS:
+                        break
+            except Exception as e:
+                print(f"[open_browser] {account} session closed: {e}", flush=True)
+            finally:
+                ACTIVE_USER_BROWSERS.pop(account, None)
+                try:
+                    await ctx.close()
+                except Exception:
+                    pass
+                try:
+                    await pool.verify_account(account)
+                except Exception:
+                    pass
+
+
 @app.get("/api/admin/accounts")
 async def admin_accounts(x_admin_key: str | None = Header(default=None)):
     _admin_auth(x_admin_key)
-    return {"accounts": pool.list_accounts()}
+    accs = pool.list_accounts()
+    for a in accs:
+        a["browser_open"] = bool(a["name"] in ACTIVE_USER_BROWSERS)
+    return {"accounts": accs}
 
 
 @app.patch("/api/admin/accounts/{name}")
@@ -445,6 +523,8 @@ async def admin_account_patch(name: str, body: AccountPatch,
         pool.set_note(name, body.note)
     if body.email is not None:
         pool.set_email(name, body.email)
+    if body.proxy is not None:
+        pool.set_proxy(name, body.proxy)
     return {"ok": True}
 
 
@@ -472,12 +552,67 @@ async def admin_account_verify(name: str, x_admin_key: str | None = Header(defau
     return {"ok": ok}
 
 
-async def _run_add_job(name: str, email: str, password: str, totp: str):
+@app.post("/api/admin/accounts/{name}/open_browser")
+async def admin_account_open_browser(name: str, x_admin_key: str | None = Header(default=None)):
+    _admin_auth(x_admin_key)
+    if name not in pool.accounts:
+        raise HTTPException(404, "account not found")
+    if name in ACTIVE_USER_BROWSERS:
+        return {"ok": True, "message": "Browser is already open"}
+    lock = pool._locks.setdefault(name, asyncio.Lock())
+    if lock.locked():
+        raise HTTPException(409, "Tài khoản đang bận tạo video hoặc đã mở trình duyệt")
+    asyncio.create_task(_run_user_browser(name))
+    return {"ok": True, "message": f"Đã mở trình duyệt cho {name}"}
+
+
+@app.post("/api/admin/accounts/{name}/close_browser")
+async def admin_account_close_browser(name: str, x_admin_key: str | None = Header(default=None)):
+    _admin_auth(x_admin_key)
+    info = ACTIVE_USER_BROWSERS.pop(name, None)
+    if info:
+        ctx = info.get("context")
+        if ctx:
+            try:
+                await ctx.close()
+            except Exception:
+                pass
+        return {"ok": True, "message": f"Đã đóng trình duyệt của {name}"}
+    return {"ok": True, "message": "Trình duyệt chưa mở"}
+
+
+class ConfigPatch(BaseModel):
+    headless: bool | None = None
+
+
+@app.get("/api/admin/config")
+async def admin_get_config(x_admin_key: str | None = Header(default=None)):
+    _admin_auth(x_admin_key)
+    return {
+        "headless": config.HEADLESS,
+        "proxy": config.PROXY,
+        "max_concurrency": config.MAX_CONCURRENCY,
+        "locale": config.LOCALE,
+        "extension_enabled": config.EXTENSION_ENABLED,
+    }
+
+
+@app.patch("/api/admin/config")
+async def admin_patch_config(body: ConfigPatch, x_admin_key: str | None = Header(default=None)):
+    _admin_auth(x_admin_key)
+    if body.headless is not None:
+        config.HEADLESS = body.headless
+    return {"ok": True, "headless": config.HEADLESS}
+
+
+async def _run_add_job(name: str, email: str, password: str, totp: str, proxy: str = ""):
     JOBS[name] = {"kind": "add", "status": "running", "error": "", "started_at": time.time()}
     try:
-        await add_account_flow(name, email, password, totp)
+        await add_account_flow(name, email, password, totp, proxy=proxy or "")
         pool.set_email(name, email)
         pool.set_login_status(name, True)
+        if proxy:
+            pool.set_proxy(name, proxy)
         JOBS[name] = {**JOBS[name], "status": "success"}
     except Exception as e:
         JOBS[name] = {**JOBS[name], "status": "failed", "error": str(e)[:300]}
@@ -492,8 +627,52 @@ async def admin_account_add(body: AccountAdd, x_admin_key: str | None = Header(d
         raise HTTPException(409, "account exists")
     if JOBS.get(body.name, {}).get("status") == "running":
         raise HTTPException(409, "add job running")
-    asyncio.create_task(_run_add_job(body.name, body.email, body.password, body.totp))
+    asyncio.create_task(_run_add_job(body.name, body.email, body.password, body.totp, body.proxy or ""))
     return {"ok": True, "job": "running"}
+
+
+async def _run_fb_job(job_id: str, raw_lines: str):
+    JOBS[job_id] = {"kind": "facebook_add", "status": "running", "error": "", "started_at": time.time(), "summary": ""}
+    import importlib
+    import add_account_fb
+    importlib.reload(add_account_fb)
+    from add_account_fb import add_fb_account_flow, parse_account_string
+    lines = [l.strip() for l in raw_lines.splitlines() if l.strip() and not l.strip().startswith("#")]
+    success_count = 0
+    errors = []
+    for line in lines:
+        try:
+            account, tk, password, secret, proxy = parse_account_string(line)
+            res = await add_fb_account_flow(account, tk, password, secret, proxy=proxy or "")
+            if res.get("ok"):
+                pool._ensure_meta(account)
+                pool.set_email(account, tk)
+                pool.set_login_status(account, True)
+                pool.set_note(account, "Facebook Login (vi-VN)")
+                if proxy:
+                    pool.set_proxy(account, proxy)
+                success_count += 1
+            else:
+                errors.append(f"{account}: {res.get('error')}")
+        except Exception as e:
+            errors.append(f"{line[:25]}: {str(e)}")
+
+    if errors and success_count == 0:
+        JOBS[job_id] = {**JOBS[job_id], "status": "failed", "error": "; ".join(errors)[:300]}
+    else:
+        err_msg = f" (Warnings: {'; '.join(errors)[:120]})" if errors else ""
+        JOBS[job_id] = {**JOBS[job_id], "status": "success", "summary": f"Success: {success_count}/{len(lines)}{err_msg}"}
+
+
+@app.post("/api/admin/accounts/facebook", status_code=202)
+async def admin_account_add_facebook(body: FacebookAccountAdd, x_admin_key: str | None = Header(default=None)):
+    _admin_auth(x_admin_key)
+    raw = body.lines.strip()
+    if not raw:
+        raise HTTPException(400, "empty input")
+    job_id = f"fb_{int(time.time())}"
+    asyncio.create_task(_run_fb_job(job_id, raw))
+    return {"ok": True, "job": job_id}
 
 
 @app.get("/api/admin/jobs")
@@ -506,6 +685,19 @@ async def admin_jobs(x_admin_key: str | None = Header(default=None)):
 async def admin_tasks(limit: int = 50, x_admin_key: str | None = Header(default=None)):
     _admin_auth(x_admin_key)
     return {"tasks": store.recent_tasks(min(max(limit, 1), 200))}
+
+
+@app.post("/api/admin/tasks/{task_id}/cancel")
+async def admin_task_cancel(task_id: str, x_admin_key: str | None = Header(default=None)):
+    _admin_auth(x_admin_key)
+    task = store.get(task_id)
+    if not task:
+        raise HTTPException(404, "task not found")
+    store.update(task_id, status="failed", error="Cancelled by user", finished_at=time.time())
+    running = RUNNING_TASKS.get(task_id)
+    if running and not running.done():
+        running.cancel()
+    return {"ok": True, "task_id": task_id}
 
 
 @app.get("/api/admin/stats")

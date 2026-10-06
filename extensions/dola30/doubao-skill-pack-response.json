@@ -24,6 +24,11 @@
 						"is_default": true,
 						"sub_display": ""
 					}, {
+						"show_name": "15s",
+						"value": "15",
+						"is_default": false,
+						"sub_display": ""
+					}, {
 						"show_name": "30s",
 						"value": "30",
 						"is_default": false,
@@ -157,17 +162,17 @@
 				}],
 				"model_capability": {
 					"seedance_v2.0": {
-						"supported_durations": ["5", "10", "30"],
+						"supported_durations": ["5", "10", "15", "30"],
 						"supported_resolutions": ["720p"],
 						"support_video_ref": false
 					},
 					"seedance_v2.0_mini": {
-						"supported_durations": ["5", "10", "30"],
+						"supported_durations": ["5", "10", "15", "30"],
 						"supported_resolutions": ["720p"],
 						"support_video_ref": false
 					},
 					"seedance_v2.0_std": {
-						"supported_durations": ["5", "10", "30"],
+						"supported_durations": ["5", "10", "15", "30"],
 						"supported_resolutions": ["720p"],
 						"support_video_ref": false
 					}

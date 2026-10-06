@@ -58,6 +58,8 @@ EXTENSION_DIR = os.getenv("DOLA_EXTENSION_DIR", "extensions/dola30")
 EXTENSION_ENABLED = os.getenv("DOLA_EXTENSION_ENABLED", "1") == "1"
 
 # Daily quota reset timezone (Japan midnight by default)
+LOCALE = os.getenv("DOLA_LOCALE", "vi-VN")
+TIMEZONE = os.getenv("DOLA_TIMEZONE", "Asia/Ho_Chi_Minh")
 LIMIT_RESET_TZ = os.getenv("DOLA_LIMIT_RESET_TZ", "Asia/Tokyo")
 
 # Conservative credit check before video generation (default 2 points)
