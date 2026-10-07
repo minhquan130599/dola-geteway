@@ -37,6 +37,7 @@ from add_account import add_account_flow
 from browser_pool import AllAccountsLimitedError, AllAccountsQuotaBlockedError, BrowserPool
 from media import download_reference_images, validate_reference_urls
 from store import PendingTaskLimitExceeded, TaskQuotaExceeded, TaskStore
+from video_worker_ui import ACTIVE_WORKER_BROWSERS, PromptClarificationError
 
 Path(config.DOWNLOAD_DIR).mkdir(parents=True, exist_ok=True)
 Path("web").mkdir(parents=True, exist_ok=True)
@@ -299,6 +300,11 @@ async def _run_task(task_id, model, prompt, ratio, duration, reference_images, c
     except (AllAccountsLimitedError, AllAccountsQuotaBlockedError) as e:
         store.update(task_id, status="failed", error=str(e)[:500],
                      failure_code="429", finished_at=time.time())
+    except PromptClarificationError as e:
+        curr = store.get(task_id)
+        if not curr or curr.get("status") not in ("completed", "failed"):
+            store.update(task_id, status="failed", error=str(e)[:500],
+                         finished_at=time.time())
     except asyncio.CancelledError:
         curr = store.get(task_id)
         if not curr or curr.get("status") not in ("completed", "failed"):
@@ -603,6 +609,400 @@ async def _run_user_browser(account: str):
                     pass
 
 
+async def _serve_browser_stream(ws: WebSocket, name: str, ctx, is_worker: bool = False):
+    """Handles CDP screencast and user interaction for either a standalone or an active worker browser."""
+    ACTIVE_USER_BROWSERS[name] = {"context": ctx, "ws": ws, "is_worker": is_worker}
+
+    cdp = None
+    current_page = None
+    notified_downloads = set()
+    watcher_task = None
+
+    try:
+        # Pick the active page or first open page
+        for pg in ctx.pages:
+            if not pg.is_closed():
+                current_page = pg
+                break
+        if not current_page:
+            current_page = await ctx.new_page()
+
+        if not is_worker:
+            try:
+                await current_page.set_viewport_size({"width": 1280, "height": 950})
+            except Exception:
+                pass
+
+        cdp = await ctx.new_cdp_session(current_page)
+        try:
+            win_info = await cdp.send("Browser.getWindowForTarget")
+            if win_info and "windowId" in win_info:
+                await cdp.send("Browser.setWindowBounds", {
+                    "windowId": win_info["windowId"],
+                    "bounds": {"width": 1296, "height": 1080, "windowState": "normal"}
+                })
+        except Exception:
+            pass
+        try:
+            await cdp.send("Page.bringToFront")
+        except Exception:
+            pass
+
+        if not is_worker:
+            if not current_page.url or current_page.url == "about:blank":
+                try:
+                    await current_page.goto("https://www.dola.com/chat", wait_until="domcontentloaded", timeout=45000)
+                except Exception:
+                    pass
+
+        async def on_screencast_frame(params):
+            session_id = params.get("sessionId")
+            if not session_id or not cdp:
+                return
+            try:
+                raw_b64 = params.get("data", "")
+                if raw_b64:
+                    jpeg_bytes = base64.b64decode(raw_b64)
+                    await ws.send_bytes(jpeg_bytes)
+            except Exception:
+                pass
+            finally:
+                try:
+                    if cdp:
+                        await cdp.send("Page.screencastFrameAck", {"sessionId": session_id})
+                except Exception:
+                    pass
+
+        cdp.on("Page.screencastFrame", on_screencast_frame)
+        await cdp.send("Page.startScreencast", {
+            "format": "jpeg",
+            "quality": 65,
+            "maxWidth": 1280,
+            "maxHeight": 1050,
+            "everyNthFrame": 1
+        })
+
+        async def send_tabs_update():
+            try:
+                tabs = []
+                for idx, pg in enumerate(ctx.pages):
+                    if not pg.is_closed():
+                        try:
+                            t = await pg.title()
+                        except Exception:
+                            t = "Tab"
+                        tabs.append({"id": idx, "url": pg.url, "title": t or "Tab"})
+                active_idx = 0
+                for idx, pg in enumerate(ctx.pages):
+                    if pg == current_page:
+                        active_idx = idx
+                        break
+                await ws.send_text(json.dumps({
+                    "type": "tabs",
+                    "tabs": tabs,
+                    "active": active_idx,
+                    "url": current_page.url,
+                    "title": await current_page.title()
+                }))
+            except Exception:
+                pass
+
+        async def switch_to_page(target_page):
+            nonlocal current_page, cdp
+            if target_page == current_page or target_page.is_closed():
+                return
+            try:
+                if cdp:
+                    await cdp.send("Page.stopScreencast")
+            except Exception:
+                pass
+            current_page = target_page
+            if not is_worker:
+                try:
+                    await current_page.set_viewport_size({"width": 1280, "height": 950})
+                except Exception:
+                    pass
+            cdp = await ctx.new_cdp_session(current_page)
+            try:
+                win_info = await cdp.send("Browser.getWindowForTarget")
+                if win_info and "windowId" in win_info:
+                    await cdp.send("Browser.setWindowBounds", {
+                        "windowId": win_info["windowId"],
+                        "bounds": {"width": 1296, "height": 1080, "windowState": "normal"}
+                    })
+            except Exception:
+                pass
+            try:
+                await cdp.send("Page.bringToFront")
+            except Exception:
+                pass
+            cdp.on("Page.screencastFrame", on_screencast_frame)
+            await cdp.send("Page.startScreencast", {
+                "format": "jpeg",
+                "quality": 65,
+                "maxWidth": 1280,
+                "maxHeight": 1050,
+                "everyNthFrame": 1
+            })
+            await send_tabs_update()
+
+        async def notify_client_download(filename: str, f_path: Path):
+            if filename in notified_downloads:
+                return
+            notified_downloads.add(filename)
+            size = f_path.stat().st_size if f_path.exists() else 0
+            print(f"[LiveStream Download Relay] -> Client: {filename} ({size} bytes)", flush=True)
+            try:
+                await ws.send_text(json.dumps({
+                    "type": "download",
+                    "filename": filename,
+                    "url": f"/api/download_video/{filename}",
+                    "size": size
+                }))
+            except Exception as ex:
+                print(f"[LiveStream WS send error]: {ex}", flush=True)
+
+        async def handle_download(dl):
+            try:
+                suggested = dl.suggested_filename or f"video_{int(time.time())}.mp4"
+                if not re.search(r"\.(mp4|webm|mkv|mov|avi|jpg|jpeg|png)$", suggested, re.I):
+                    suggested += ".mp4"
+                safe_name = f"{name}_{int(time.time())}_{suggested}"
+                dest_path = Path(config.DOWNLOAD_DIR) / safe_name
+                await dl.save_as(str(dest_path))
+                await notify_client_download(safe_name, dest_path)
+            except Exception as ex:
+                print(f"[LiveStream dl error]: {ex}", flush=True)
+
+        def setup_page_listeners(pg):
+            pg.on("framenavigated", lambda frame: asyncio.create_task(send_tabs_update()) if frame == pg.main_frame else None)
+            pg.on("download", lambda dl: asyncio.create_task(handle_download(dl)))
+
+        setup_page_listeners(current_page)
+
+        async def on_new_page(new_pg):
+            setup_page_listeners(new_pg)
+            await asyncio.sleep(0.5)
+            await switch_to_page(new_pg)
+
+        ctx.on("page", lambda p: asyncio.create_task(on_new_page(p)))
+
+        # Watch downloads folder for files written by Chrome extension or direct downloads
+        initial_files = {f.name for f in Path(config.DOWNLOAD_DIR).iterdir() if f.is_file()}
+
+        async def watch_downloads_loop():
+            known = set(initial_files)
+            while True:
+                try:
+                    await asyncio.sleep(1.0)
+                    if not Path(config.DOWNLOAD_DIR).exists():
+                        continue
+                    for f in Path(config.DOWNLOAD_DIR).iterdir():
+                        if not f.is_file():
+                            continue
+                        fname = f.name
+                        if fname in known or fname.endswith(".crdownload") or fname.startswith("."):
+                            continue
+                        if f.suffix.lower() in [".mp4", ".webm", ".mkv", ".mov"]:
+                            try:
+                                s1 = f.stat().st_size
+                                await asyncio.sleep(0.5)
+                                s2 = f.stat().st_size
+                                if s1 == s2 and s1 > 1000:
+                                    known.add(fname)
+                                    await notify_client_download(fname, f)
+                            except Exception:
+                                pass
+                except asyncio.CancelledError:
+                    break
+                except Exception:
+                    await asyncio.sleep(1.0)
+
+        watcher_task = asyncio.create_task(watch_downloads_loop())
+
+        vp = current_page.viewport_size or {"width": 1280, "height": 900}
+        await ws.send_text(json.dumps({
+            "type": "connected",
+            "account": name,
+            "viewport": vp,
+            "url": current_page.url,
+            "title": await current_page.title() if not current_page.is_closed() else "Dola",
+            "is_worker": is_worker
+        }))
+        await send_tabs_update()
+
+        while True:
+            msg_text = await ws.receive_text()
+            try:
+                cmd = json.loads(msg_text)
+            except Exception:
+                continue
+
+            ctype = cmd.get("type")
+            if ctype == "mouse":
+                mevent = cmd.get("event")
+                x = int(cmd.get("x", 0))
+                y = int(cmd.get("y", 0))
+                btn = cmd.get("button", "left")
+                try:
+                    if mevent == "move":
+                        await current_page.mouse.move(x, y)
+                    elif mevent == "down":
+                        await current_page.mouse.move(x, y)
+                        await current_page.mouse.down(button=btn)
+                    elif mevent == "up":
+                        await current_page.mouse.move(x, y)
+                        await current_page.mouse.up(button=btn)
+                    elif mevent == "click":
+                        count = cmd.get("clickCount", 1)
+                        await current_page.mouse.click(x, y, button=btn, click_count=count)
+                    elif mevent == "wheel":
+                        dx = int(cmd.get("deltaX", 0))
+                        dy = int(cmd.get("deltaY", 0))
+                        await current_page.mouse.move(x, y)
+                        await current_page.mouse.wheel(dx, dy)
+                except Exception:
+                    pass
+            elif ctype == "text":
+                text_val = cmd.get("text", "")
+                if text_val:
+                    try:
+                        await current_page.keyboard.insert_text(text_val)
+                    except Exception:
+                        pass
+            elif ctype == "key_press" or ctype == "keyboard":
+                key = cmd.get("key", "")
+                ctrl = cmd.get("ctrl", False)
+                meta = cmd.get("meta", False)
+                shift = cmd.get("shift", False)
+                alt = cmd.get("alt", False)
+                kevent = cmd.get("event")
+                if key:
+                    try:
+                        modifiers = []
+                        if ctrl: modifiers.append("Control")
+                        if meta: modifiers.append("Meta")
+                        if alt: modifiers.append("Alt")
+                        if shift: modifiers.append("Shift")
+                        if modifiers and len(key) == 1:
+                            combo = "+".join(modifiers + [key.lower()])
+                            await current_page.keyboard.press(combo)
+                        elif kevent == "down":
+                            await current_page.keyboard.down(key)
+                        elif kevent == "up":
+                            await current_page.keyboard.up(key)
+                        else:
+                            await current_page.keyboard.press(key)
+                    except Exception:
+                        pass
+            elif ctype == "navigate":
+                nav_url = (cmd.get("url") or "").strip()
+                if nav_url:
+                    if not (nav_url.startswith("http://") or nav_url.startswith("https://")):
+                        nav_url = "https://" + nav_url
+                    try:
+                        await current_page.goto(nav_url, wait_until="domcontentloaded", timeout=45000)
+                        await send_tabs_update()
+                    except Exception:
+                        pass
+            elif ctype == "back":
+                try:
+                    await current_page.go_back()
+                    await send_tabs_update()
+                except Exception:
+                    pass
+            elif ctype == "forward":
+                try:
+                    await current_page.go_forward()
+                    await send_tabs_update()
+                except Exception:
+                    pass
+            elif ctype == "reload":
+                try:
+                    await current_page.reload()
+                    await send_tabs_update()
+                except Exception:
+                    pass
+            elif ctype == "switch_tab":
+                tab_id = int(cmd.get("index", 0))
+                open_pgs = [p for p in ctx.pages if not p.is_closed()]
+                if 0 <= tab_id < len(open_pgs):
+                    await switch_to_page(open_pgs[tab_id])
+            elif ctype == "new_tab":
+                new_tab_url = cmd.get("url") or "https://www.dola.com/chat"
+                n_page = await ctx.new_page()
+                setup_page_listeners(n_page)
+                try:
+                    await n_page.goto(new_tab_url, wait_until="domcontentloaded")
+                except Exception:
+                    pass
+                await switch_to_page(n_page)
+            elif ctype == "close_tab":
+                tab_id = int(cmd.get("index", 0))
+                open_pgs = [p for p in ctx.pages if not p.is_closed()]
+                if len(open_pgs) > 1 and 0 <= tab_id < len(open_pgs):
+                    target = open_pgs[tab_id]
+                    await target.close()
+                    rem = [p for p in ctx.pages if not p.is_closed()]
+                    if rem:
+                        await switch_to_page(rem[0])
+            elif ctype == "capture_video":
+                try:
+                    urls = await current_page.evaluate("""() => {
+                        const list = [];
+                        document.querySelectorAll('video').forEach(v => {
+                            if (v.src && v.src.startsWith('http')) list.push(v.src);
+                            v.querySelectorAll('source').forEach(s => {
+                                if (s.src && s.src.startsWith('http')) list.push(s.src);
+                            });
+                        });
+                        document.querySelectorAll('a[href*=".mp4"], a[download]').forEach(a => {
+                            if (a.href && a.href.startsWith('http')) list.push(a.href);
+                        });
+                        return Array.from(new Set(list));
+                    }""")
+                    if urls:
+                        from video_worker import _download
+                        dl_path = await _download(urls[-1], name)
+                        await notify_client_download(dl_path.name, dl_path)
+                    else:
+                        await ws.send_text(json.dumps({
+                            "type": "status",
+                            "text": "Không tìm thấy video nào trên trang hiện tại để tải."
+                        }))
+                except Exception as ex:
+                    await ws.send_text(json.dumps({
+                        "type": "status",
+                        "text": f"Lỗi quét video: {ex}"
+                    }))
+            elif ctype == "close":
+                break
+    except WebSocketDisconnect:
+        print(f"[ws_browser] Client disconnected from {name}", flush=True)
+    except Exception as e:
+        print(f"[ws_browser] Error in session {name}: {e}", flush=True)
+    finally:
+        if watcher_task and not watcher_task.done():
+            watcher_task.cancel()
+        ACTIVE_USER_BROWSERS.pop(name, None)
+        try:
+            if cdp:
+                await cdp.send("Page.stopScreencast")
+        except Exception:
+            pass
+        if not is_worker:
+            try:
+                await ctx.close()
+            except Exception:
+                pass
+            try:
+                await pool.verify_account(name)
+            except Exception:
+                pass
+        else:
+            print(f"[ws_browser] Live stream detached from active worker {name}", flush=True)
+
+
 @app.websocket("/ws/browser/{name}")
 async def ws_browser_stream(ws: WebSocket, name: str, token: str | None = Query(default=None), admin_key: str | None = Query(default=None)):
     """Method 3: Live Browser Stream with CDP Screencast, full remote interaction, and automatic client downloads."""
@@ -626,6 +1026,15 @@ async def ws_browser_stream(ws: WebSocket, name: str, token: str | None = Query(
     if not profile_dir.exists():
         await ws.send_text(json.dumps({"type": "error", "message": f"Chưa có profile cho '{name}'"}))
         await ws.close(code=1008)
+        return
+
+    # Check if account is actively running in a generation worker
+    worker_browser = ACTIVE_WORKER_BROWSERS.get(name)
+    is_worker = bool(worker_browser and worker_browser.get("context") and not worker_browser["context"].is_closed())
+    if is_worker:
+        ctx = worker_browser["context"]
+        await ws.send_text(json.dumps({"type": "status", "text": f"Đang liên kết vào trình duyệt đang tạo video của '{name}'..."}))
+        await _serve_browser_stream(ws, name, ctx, is_worker=True)
         return
 
     lock = pool._locks.setdefault(name, asyncio.Lock())
@@ -652,369 +1061,7 @@ async def ws_browser_stream(ws: WebSocket, name: str, token: str | None = Query(
                 await ws.close()
                 return
 
-            ACTIVE_USER_BROWSERS[name] = {"context": ctx, "ws": ws}
-
-            cdp = None
-            current_page = None
-            notified_downloads = set()
-
-            try:
-                current_page = ctx.pages[0] if ctx.pages else await ctx.new_page()
-                await current_page.set_viewport_size({"width": 1280, "height": 950})
-
-                cdp = await ctx.new_cdp_session(current_page)
-                try:
-                    win_info = await cdp.send("Browser.getWindowForTarget")
-                    if win_info and "windowId" in win_info:
-                        await cdp.send("Browser.setWindowBounds", {
-                            "windowId": win_info["windowId"],
-                            "bounds": {"width": 1296, "height": 1080, "windowState": "normal"}
-                        })
-                except Exception:
-                    pass
-
-                if not current_page.url or current_page.url == "about:blank":
-                    try:
-                        await current_page.goto("https://www.dola.com/chat", wait_until="domcontentloaded", timeout=45000)
-                    except Exception:
-                        pass
-
-                async def on_screencast_frame(params):
-                    session_id = params.get("sessionId")
-                    if not session_id or not cdp:
-                        return
-                    try:
-                        raw_b64 = params.get("data", "")
-                        if raw_b64:
-                            jpeg_bytes = base64.b64decode(raw_b64)
-                            await ws.send_bytes(jpeg_bytes)
-                    except Exception:
-                        pass
-                    finally:
-                        try:
-                            if cdp:
-                                await cdp.send("Page.screencastFrameAck", {"sessionId": session_id})
-                        except Exception:
-                            pass
-
-                cdp.on("Page.screencastFrame", on_screencast_frame)
-                await cdp.send("Page.startScreencast", {
-                    "format": "jpeg",
-                    "quality": 65,
-                    "maxWidth": 1280,
-                    "maxHeight": 1050,
-                    "everyNthFrame": 1
-                })
-
-                async def send_tabs_update():
-                    try:
-                        tabs = []
-                        for idx, pg in enumerate(ctx.pages):
-                            if not pg.is_closed():
-                                try:
-                                    t = await pg.title()
-                                except Exception:
-                                    t = "Tab"
-                                tabs.append({"id": idx, "url": pg.url, "title": t or "Tab"})
-                        active_idx = 0
-                        for idx, pg in enumerate(ctx.pages):
-                            if pg == current_page:
-                                active_idx = idx
-                                break
-                        await ws.send_text(json.dumps({
-                            "type": "tabs",
-                            "tabs": tabs,
-                            "active": active_idx,
-                            "url": current_page.url,
-                            "title": await current_page.title()
-                        }))
-                    except Exception:
-                        pass
-
-                async def switch_to_page(target_page):
-                    nonlocal current_page, cdp
-                    if target_page == current_page or target_page.is_closed():
-                        return
-                    try:
-                        if cdp:
-                            await cdp.send("Page.stopScreencast")
-                    except Exception:
-                        pass
-                    current_page = target_page
-                    try:
-                        await current_page.set_viewport_size({"width": 1280, "height": 950})
-                    except Exception:
-                        pass
-                    cdp = await ctx.new_cdp_session(current_page)
-                    try:
-                        win_info = await cdp.send("Browser.getWindowForTarget")
-                        if win_info and "windowId" in win_info:
-                            await cdp.send("Browser.setWindowBounds", {
-                                "windowId": win_info["windowId"],
-                                "bounds": {"width": 1296, "height": 1080, "windowState": "normal"}
-                            })
-                    except Exception:
-                        pass
-                    cdp.on("Page.screencastFrame", on_screencast_frame)
-                    await cdp.send("Page.startScreencast", {
-                        "format": "jpeg",
-                        "quality": 65,
-                        "maxWidth": 1280,
-                        "maxHeight": 1050,
-                        "everyNthFrame": 1
-                    })
-                    await send_tabs_update()
-
-                async def notify_client_download(filename: str, f_path: Path):
-                    if filename in notified_downloads:
-                        return
-                    notified_downloads.add(filename)
-                    size = f_path.stat().st_size if f_path.exists() else 0
-                    print(f"[LiveStream Download Relay] -> Client: {filename} ({size} bytes)", flush=True)
-                    try:
-                        await ws.send_text(json.dumps({
-                            "type": "download",
-                            "filename": filename,
-                            "url": f"/api/download_video/{filename}",
-                            "size": size
-                        }))
-                    except Exception as ex:
-                        print(f"[LiveStream WS send error]: {ex}", flush=True)
-
-                async def handle_download(dl):
-                    try:
-                        suggested = dl.suggested_filename or f"video_{int(time.time())}.mp4"
-                        if not re.search(r"\.(mp4|webm|mkv|mov|avi|jpg|jpeg|png)$", suggested, re.I):
-                            suggested += ".mp4"
-                        safe_name = f"{name}_{int(time.time())}_{suggested}"
-                        dest_path = Path(config.DOWNLOAD_DIR) / safe_name
-                        await dl.save_as(str(dest_path))
-                        await notify_client_download(safe_name, dest_path)
-                    except Exception as ex:
-                        print(f"[LiveStream dl error]: {ex}", flush=True)
-
-                def setup_page_listeners(pg):
-                    pg.on("framenavigated", lambda frame: asyncio.create_task(send_tabs_update()) if frame == pg.main_frame else None)
-                    pg.on("download", lambda dl: asyncio.create_task(handle_download(dl)))
-
-                setup_page_listeners(current_page)
-
-                async def on_new_page(new_pg):
-                    setup_page_listeners(new_pg)
-                    await asyncio.sleep(0.5)
-                    await switch_to_page(new_pg)
-
-                ctx.on("page", lambda p: asyncio.create_task(on_new_page(p)))
-
-                # Watch downloads folder for files written by Chrome extension or direct downloads
-                initial_files = {f.name for f in Path(config.DOWNLOAD_DIR).iterdir() if f.is_file()}
-
-                async def watch_downloads_loop():
-                    known = set(initial_files)
-                    while True:
-                        try:
-                            await asyncio.sleep(1.0)
-                            if not Path(config.DOWNLOAD_DIR).exists():
-                                continue
-                            for f in Path(config.DOWNLOAD_DIR).iterdir():
-                                if not f.is_file():
-                                    continue
-                                fname = f.name
-                                if fname in known or fname.endswith(".crdownload") or fname.startswith("."):
-                                    continue
-                                if f.suffix.lower() in [".mp4", ".webm", ".mkv", ".mov"]:
-                                    try:
-                                        s1 = f.stat().st_size
-                                        await asyncio.sleep(0.5)
-                                        s2 = f.stat().st_size
-                                        if s1 == s2 and s1 > 1000:
-                                            known.add(fname)
-                                            await notify_client_download(fname, f)
-                                    except Exception:
-                                        pass
-                        except asyncio.CancelledError:
-                            break
-                        except Exception:
-                            await asyncio.sleep(1.0)
-
-                watcher_task = asyncio.create_task(watch_downloads_loop())
-
-                await ws.send_text(json.dumps({
-                    "type": "connected",
-                    "account": name,
-                    "viewport": {"width": 1280, "height": 900},
-                    "url": current_page.url,
-                    "title": await current_page.title()
-                }))
-                await send_tabs_update()
-
-                while True:
-                    msg_text = await ws.receive_text()
-                    try:
-                        cmd = json.loads(msg_text)
-                    except Exception:
-                        continue
-
-                    ctype = cmd.get("type")
-                    if ctype == "mouse":
-                        mevent = cmd.get("event")
-                        x = int(cmd.get("x", 0))
-                        y = int(cmd.get("y", 0))
-                        btn = cmd.get("button", "left")
-                        try:
-                            if mevent == "move":
-                                await current_page.mouse.move(x, y)
-                            elif mevent == "down":
-                                await current_page.mouse.move(x, y)
-                                await current_page.mouse.down(button=btn)
-                            elif mevent == "up":
-                                await current_page.mouse.move(x, y)
-                                await current_page.mouse.up(button=btn)
-                            elif mevent == "click":
-                                count = cmd.get("clickCount", 1)
-                                await current_page.mouse.click(x, y, button=btn, click_count=count)
-                            elif mevent == "wheel":
-                                dx = int(cmd.get("deltaX", 0))
-                                dy = int(cmd.get("deltaY", 0))
-                                await current_page.mouse.move(x, y)
-                                await current_page.mouse.wheel(dx, dy)
-                        except Exception:
-                            pass
-                    elif ctype == "text":
-                        text_val = cmd.get("text", "")
-                        if text_val:
-                            try:
-                                await current_page.keyboard.insert_text(text_val)
-                            except Exception:
-                                pass
-                    elif ctype == "key_press" or ctype == "keyboard":
-                        key = cmd.get("key", "")
-                        ctrl = cmd.get("ctrl", False)
-                        meta = cmd.get("meta", False)
-                        shift = cmd.get("shift", False)
-                        alt = cmd.get("alt", False)
-                        kevent = cmd.get("event")
-                        if key:
-                            try:
-                                modifiers = []
-                                if ctrl: modifiers.append("Control")
-                                if meta: modifiers.append("Meta")
-                                if alt: modifiers.append("Alt")
-                                if shift: modifiers.append("Shift")
-                                if modifiers and len(key) == 1:
-                                    combo = "+".join(modifiers + [key.lower()])
-                                    await current_page.keyboard.press(combo)
-                                elif kevent == "down":
-                                    await current_page.keyboard.down(key)
-                                elif kevent == "up":
-                                    await current_page.keyboard.up(key)
-                                else:
-                                    await current_page.keyboard.press(key)
-                            except Exception:
-                                pass
-                    elif ctype == "navigate":
-                        nav_url = (cmd.get("url") or "").strip()
-                        if nav_url:
-                            if not (nav_url.startswith("http://") or nav_url.startswith("https://")):
-                                nav_url = "https://" + nav_url
-                            try:
-                                await current_page.goto(nav_url, wait_until="domcontentloaded", timeout=45000)
-                                await send_tabs_update()
-                            except Exception:
-                                pass
-                    elif ctype == "back":
-                        try:
-                            await current_page.go_back()
-                            await send_tabs_update()
-                        except Exception:
-                            pass
-                    elif ctype == "forward":
-                        try:
-                            await current_page.go_forward()
-                            await send_tabs_update()
-                        except Exception:
-                            pass
-                    elif ctype == "reload":
-                        try:
-                            await current_page.reload()
-                            await send_tabs_update()
-                        except Exception:
-                            pass
-                    elif ctype == "switch_tab":
-                        tab_id = int(cmd.get("index", 0))
-                        open_pgs = [p for p in ctx.pages if not p.is_closed()]
-                        if 0 <= tab_id < len(open_pgs):
-                            await switch_to_page(open_pgs[tab_id])
-                    elif ctype == "new_tab":
-                        new_tab_url = cmd.get("url") or "https://www.dola.com/chat"
-                        n_page = await ctx.new_page()
-                        setup_page_listeners(n_page)
-                        try:
-                            await n_page.goto(new_tab_url, wait_until="domcontentloaded")
-                        except Exception:
-                            pass
-                        await switch_to_page(n_page)
-                    elif ctype == "close_tab":
-                        tab_id = int(cmd.get("index", 0))
-                        open_pgs = [p for p in ctx.pages if not p.is_closed()]
-                        if len(open_pgs) > 1 and 0 <= tab_id < len(open_pgs):
-                            target = open_pgs[tab_id]
-                            await target.close()
-                            rem = [p for p in ctx.pages if not p.is_closed()]
-                            if rem:
-                                await switch_to_page(rem[0])
-                    elif ctype == "capture_video":
-                        try:
-                            urls = await current_page.evaluate("""() => {
-                                const list = [];
-                                document.querySelectorAll('video').forEach(v => {
-                                    if (v.src && v.src.startsWith('http')) list.push(v.src);
-                                    v.querySelectorAll('source').forEach(s => {
-                                        if (s.src && s.src.startsWith('http')) list.push(s.src);
-                                    });
-                                });
-                                document.querySelectorAll('a[href*=".mp4"], a[download]').forEach(a => {
-                                    if (a.href && a.href.startsWith('http')) list.push(a.href);
-                                });
-                                return Array.from(new Set(list));
-                            }""")
-                            if urls:
-                                from video_worker import _download
-                                dl_path = await _download(urls[-1], name)
-                                await notify_client_download(dl_path.name, dl_path)
-                            else:
-                                await ws.send_text(json.dumps({
-                                    "type": "status",
-                                    "text": "Không tìm thấy video nào trên trang hiện tại để tải."
-                                }))
-                        except Exception as ex:
-                            await ws.send_text(json.dumps({
-                                "type": "status",
-                                "text": f"Lỗi quét video: {ex}"
-                            }))
-                    elif ctype == "close":
-                        break
-            except WebSocketDisconnect:
-                print(f"[ws_browser] Client disconnected from {name}", flush=True)
-            except Exception as e:
-                print(f"[ws_browser] Error in session {name}: {e}", flush=True)
-            finally:
-                if 'watcher_task' in locals() and not watcher_task.done():
-                    watcher_task.cancel()
-                ACTIVE_USER_BROWSERS.pop(name, None)
-                try:
-                    if 'cdp' in locals() and cdp:
-                        await cdp.send("Page.stopScreencast")
-                except Exception:
-                    pass
-                try:
-                    await ctx.close()
-                except Exception:
-                    pass
-                try:
-                    await pool.verify_account(name)
-                except Exception:
-                    pass
+            await _serve_browser_stream(ws, name, ctx, is_worker=False)
 
 
 @app.get("/api/admin/accounts")
@@ -1022,7 +1069,9 @@ async def admin_accounts(x_admin_key: str | None = Header(default=None)):
     _admin_auth(x_admin_key)
     accs = pool.list_accounts()
     for a in accs:
-        a["browser_open"] = bool(a["name"] in ACTIVE_USER_BROWSERS)
+        is_worker = bool(a["name"] in ACTIVE_WORKER_BROWSERS)
+        a["browser_open"] = bool(a["name"] in ACTIVE_USER_BROWSERS or is_worker)
+        a["worker_running"] = is_worker
     return {"accounts": accs}
 
 
@@ -1072,7 +1121,7 @@ async def admin_account_open_browser(name: str, x_admin_key: str | None = Header
     _admin_auth(x_admin_key)
     if name not in pool.accounts:
         raise HTTPException(404, "account not found")
-    if name in ACTIVE_USER_BROWSERS:
+    if name in ACTIVE_USER_BROWSERS or name in ACTIVE_WORKER_BROWSERS:
         return {"ok": True, "message": "Browser is already open"}
     lock = pool._locks.setdefault(name, asyncio.Lock())
     if lock.locked():
@@ -1084,6 +1133,16 @@ async def admin_account_open_browser(name: str, x_admin_key: str | None = Header
 @app.post("/api/admin/accounts/{name}/close_browser")
 async def admin_account_close_browser(name: str, x_admin_key: str | None = Header(default=None)):
     _admin_auth(x_admin_key)
+    if name in ACTIVE_WORKER_BROWSERS:
+        info = ACTIVE_USER_BROWSERS.pop(name, None)
+        if info:
+            ws = info.get("ws")
+            if ws:
+                try:
+                    await ws.close()
+                except Exception:
+                    pass
+        return {"ok": True, "message": f"Đã đóng live stream (worker của {name} vẫn tiếp tục chạy)"}
     info = ACTIVE_USER_BROWSERS.pop(name, None)
     if info:
         ws = info.get("ws")

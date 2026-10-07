@@ -9,7 +9,8 @@ from pathlib import Path
 
 from dola_client import CreditError
 from video_worker_ui import (
-    AccountLimitedError, CreditInsufficientError, RiskControlError, generate_video, resume_video,
+    ACTIVE_WORKER_BROWSERS, AccountLimitedError, CreditInsufficientError,
+    PromptClarificationError, RiskControlError, generate_video, resume_video,
 )
 import config
 from browser import cookie_profile_names
@@ -465,6 +466,14 @@ class BrowserPool:
                             self._conn.commit()
                             last_err = e
                             continue
+                        except PromptClarificationError as e:
+                            self._claim(account)
+                            self._conn.execute(
+                                "UPDATE accounts_meta SET last_used_at=? WHERE name=?",
+                                (time.time(), account))
+                            self._conn.commit()
+                            print(f"[pool] {account} prompt clarification error (rejecting task immediately): {e}", flush=True)
+                            raise
                         except TimeoutError as e:
                             self._claim(account)
                             self._conn.execute(

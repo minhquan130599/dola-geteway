@@ -304,7 +304,7 @@ td .prompt{display:block;max-width:340px;overflow:hidden;text-overflow:ellipsis;
       <div style="display:flex;align-items:center;gap:8px">
         <button class="btn" style="padding:4px 10px;font-size:12px;background:#0369a1;border-color:#0284c7;color:#fff" onclick="sendStreamCmd({type:'capture_video'})" title="Quét tìm và tải video hiện tại trên trang">📥 Tải video trang</button>
         <button class="btn" style="padding:4px 10px;font-size:12px;background:#334155;border-color:#475569;color:#fff" onclick="toggleStreamFullscreen()" title="Toàn màn hình">⛶</button>
-        <button class="btn btn-danger" style="padding:4px 12px;font-size:12px;font-weight:600" onclick="closeStreamModal()">✕ Đóng Browser</button>
+        <button id="streamCloseBtn" class="btn btn-danger" style="padding:4px 12px;font-size:12px;font-weight:600" onclick="closeStreamModal()">✕ Đóng Browser</button>
       </div>
     </div>
 
@@ -467,10 +467,13 @@ function logout(){
 }
 
 function switchTab(t){
+  if(curTab === t) return;
   curTab=t;
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));
   ['dash','create','accounts','tasks','keys'].forEach(x=>{q('#tab-'+x).style.display=x===t?'block':'none';});
-  refresh();
+  if(t !== 'create'){
+    refresh();
+  }
 }
 
 function setCreateMode(mode){
@@ -572,15 +575,22 @@ async function trackDashboardVideo(taskId){
   }
 }
 
+let isRefreshing = false;
 async function refresh(){
   if(q('#loginScreen') && q('#loginScreen').style.display !== 'none') return;
+  if(isRefreshing) return;
+  isRefreshing = true;
   q('#lastUpdate').textContent='Updated at '+new Date().toLocaleTimeString();
   try{
     if(curTab==='dash')await loadDash();
     else if(curTab==='accounts')await loadAccounts();
     else if(curTab==='tasks')await loadTasks();
     else if(curTab==='keys')await loadKeys();
-  }catch(e){if(e.message!=='unauthorized'){/* silent */}}
+  }catch(e){
+    if(e.message!=='unauthorized') console.error('Refresh error in tab', curTab, e);
+  }finally{
+    isRefreshing = false;
+  }
 }
 
 /* ---- Dashboard ---- */
@@ -649,9 +659,16 @@ async function loadAccounts(){
       ? `<b style="font-size:14px;color:${x.credit_balance > 0 ? '#059669' : '#dc2626'}">${x.credit_balance} pts</b>`
       : `<span class="tiny" style="color:#94a3b8">Chưa check</span>`;
     const rem = pts + `<div class="tiny" style="color:#64748b">${x.used_today || 0} video hôm nay</div>`;
-    const browserBtn = x.browser_open
-      ? `<button class="btn btn-p" style="margin-right:6px;background:#0284c7;border-color:#0284c7" onclick="openLiveBrowser('${x.name}')" title="Xem phiên stream đang mở">📺 Xem Stream</button><button class="btn btn-danger" style="margin-right:6px" onclick="closeBrowser('${x.name}',this)">Đóng</button>`
-      : `<button class="btn" style="margin-right:6px;background:#f0fdf4;border-color:#86efac;color:#166534" onclick="openLiveBrowser('${x.name}')" title="Mở live stream tương tác từ xa trực tiếp trên Web">🌐 Mở Browser (Live Stream)</button>`;
+    let browserBtn = '';
+    if (x.worker_running) {
+      browserBtn = `<button class="btn btn-p" style="margin-right:6px;background:#d97706;border-color:#d97706" onclick="openLiveBrowser('${x.name}')" title="Liên kết và theo dõi trực tiếp trình duyệt đang chạy tạo video">📺 Xem Browser (Đang chạy)</button>`;
+    } else if (x.browser_open) {
+      browserBtn = `<button class="btn btn-p" style="margin-right:6px;background:#0284c7;border-color:#0284c7" onclick="openLiveBrowser('${x.name}')" title="Xem phiên stream đang mở">📺 Xem Stream</button><button class="btn btn-danger" style="margin-right:6px" onclick="closeBrowser('${x.name}',this)">Đóng</button>`;
+    } else if (x.busy) {
+      browserBtn = `<button class="btn btn-p" style="margin-right:6px;background:#d97706;border-color:#d97706" onclick="openLiveBrowser('${x.name}')" title="Tài khoản đang bận - bấm để kết nối xem live">📺 Xem Browser (Đang bận)</button>`;
+    } else {
+      browserBtn = `<button class="btn" style="margin-right:6px;background:#f0fdf4;border-color:#86efac;color:#166534" onclick="openLiveBrowser('${x.name}')" title="Mở live stream tương tác từ xa trực tiếp trên Web">🌐 Mở Browser (Live Stream)</button>`;
+    }
     const proxyCell = x.proxy
       ? `<div style="display:flex;align-items:center;gap:6px">`
         + `<span class="tiny" style="font-family:monospace;background:#f1f5f9;padding:2px 6px;border-radius:4px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block" title="${esc(x.proxy)}">${esc(x.proxy)}</span>`
@@ -957,6 +974,15 @@ function handleStreamMessage(msg){
     closeStreamModal();
   } else if (msg.type === 'connected') {
     q('#streamLoading').style.display = 'none';
+    if (msg.is_worker) {
+      q('#streamAccountBadge').innerHTML = `${esc(msg.account)} <span style="background:#d97706;padding:2px 6px;border-radius:4px;font-size:11px">ĐANG TẠO VIDEO</span>`;
+      const btn = q('#streamCloseBtn');
+      if (btn) btn.textContent = '✕ Đóng xem Live (Worker vẫn chạy)';
+    } else {
+      q('#streamAccountBadge').textContent = msg.account;
+      const btn = q('#streamCloseBtn');
+      if (btn) btn.textContent = '✕ Đóng Browser';
+    }
     if (msg.url) q('#streamUrlInput').value = msg.url;
     if (msg.viewport) {
       streamCanvas.width = msg.viewport.width;
@@ -1137,7 +1163,11 @@ async function loadTasks(){
   const rows=r.tasks.map(t=>{
     let action = '—';
     if(t.status==='processing'||t.status==='queued'){
-      action = '<button class="btn" style="color:#ef4444;border-color:#ef4444;padding:2px 8px;font-size:12px;cursor:pointer" onclick="cancelTask(&quot;'+esc(t.id)+'&quot;)">Cancel</button>';
+      let viewBtn = '';
+      if(t.status==='processing' && t.account){
+        viewBtn = `<button class="btn btn-p" style="padding:2px 8px;font-size:12px;margin-right:6px;background:#d97706;border-color:#d97706" onclick="openLiveBrowser('${esc(t.account)}')" title="Xem trực tiếp trình duyệt đang chạy task này">📺 Xem</button>`;
+      }
+      action = viewBtn + '<button class="btn" style="color:#ef4444;border-color:#ef4444;padding:2px 8px;font-size:12px;cursor:pointer" onclick="cancelTask(&quot;'+esc(t.id)+'&quot;)">Cancel</button>';
     }
     return [
       '<span class="tiny" title="'+esc(t.id)+'">'+t.id.replace('video_','').slice(0,10)+'</span>',
@@ -1152,7 +1182,7 @@ async function loadTasks(){
             const vUrl = resolveVideoUrl(t.video_url);
             return '<div class="video-wrap"><a href="'+esc(vUrl)+'" target="_blank">Open</a><button class="btn" onclick="playVideo(&quot;'+esc(vUrl)+'&quot;)">Preview</button></div>';
           })()
-        :(t.status==='failed'?'<span class="tiny" title="'+esc(t.error||'')+'">'+esc((t.error||'').slice(0,30))+'</span>':'—'),
+        :(t.status==='failed'?'<span class="tiny" style="color:#ef4444;cursor:pointer" title="'+esc(t.error||'')+'" onclick="alert(this.title)">'+esc((t.error||'').slice(0,35))+(t.error && t.error.length > 35 ? '…' : '')+'</span>':'—'),
       action
     ];
   });

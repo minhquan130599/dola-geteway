@@ -70,11 +70,14 @@ async ({conversationId, msToken, fp}) => {
   const videoModels = [];
   let isClarifying = false;
   let clarifyingText = "";
+  let hasFailure = false;
+  let failureText = "";
   for (const msg of messages) {
     const ext = msg.ext || {};
-    // Track per-message: last message's state wins (not sticky)
     const msgClarifying = ext.is_creation_clarifying === "1" || ext.ai_creation_res_code === "710082041";
-    isClarifying = msgClarifying;
+    if (msgClarifying) isClarifying = true;
+    const msgFailed = ext.ai_creation_res_code === "710082023";
+    if (msgFailed) hasFailure = true;
     let content = msg.content;
     if (typeof content === "string") {
       try { content = JSON.parse(content); } catch (e) { continue; }
@@ -84,7 +87,8 @@ async ({conversationId, msToken, fp}) => {
       const text = (((block.content || {}).text_block) || {}).text || "";
       if (text) {
         texts.push(text.slice(0, 300));
-        if (isClarifying && !clarifyingText) clarifyingText = text;
+        if (msgClarifying && !clarifyingText) clarifyingText = text;
+        if (msgFailed && !failureText) failureText = text;
       }
       if (block.block_type !== 2074) continue;
       const creations = (((block.content || {}).creation_block) || {}).creations || [];
@@ -98,7 +102,7 @@ async ({conversationId, msToken, fp}) => {
       }
     }
   }
-  return {ok: true, status: resp.status, texts, videos, videoModels, isClarifying, clarifyingText};
+  return {ok: true, status: resp.status, texts, videos, videoModels, isClarifying, clarifyingText, hasFailure, failureText};
 }
 """
 

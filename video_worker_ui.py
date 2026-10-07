@@ -23,6 +23,14 @@ from browser import cookie_value, launch_account_context
 from dola_client import CREDIT_FAIL_PATTERN, CreditError
 from video_worker import POLL_JS, RiskControlError, _download, extract_unwatermarked_url
 
+# Active worker browser contexts running video generation: account -> {"context": context, "page": page, "started_at": float}
+ACTIVE_WORKER_BROWSERS: dict[str, dict] = {}
+
+
+class PromptClarificationError(Exception):
+    """Raised when Dola requests prompt clarification (duration/script) instead of creating video."""
+
+
 # Daily limit pattern matching response text
 DAILY_LIMIT_PATTERN = re.compile(
     r"動画生成の\s*1日あたりの上限|每日(?:视频|影片)?生成.*(?:上限|限额|额度)|"
@@ -34,9 +42,22 @@ DAILY_LIMIT_PATTERN = re.compile(
 # Clarification pattern matching Dola prompt confirmation / duration questions
 CLARIFICATION_PATTERN = re.compile(
     r"supports\s+durations\s+from|nearest\s+supported\s+duration|"
+    r"video\s+generation\s+currently\s+supports|"
+    r"please\s+choose.*duration|specify.*duration|"
+    r"hỗ trợ độ dài từ|độ dài.*từ \d+ đến \d+ giây|thời lượng.*từ \d+ đến \d+ giây|"
+    r"chọn độ dài.*video|chọn thời lượng.*video|độ dài được hỗ trợ|"
     r"動画生成ツールは\s*\d+\s*秒から|ご要望の動画の長さを選択|"
     r"動画生成に必要な情報が不足|長さ[：:].*秒の間でご指定|"
     r"请选择.*(?:视频)?时长|视频生成目前支持",
+    re.IGNORECASE,
+)
+
+# Reject pattern when Dola explicitly refuses to create video
+CANNOT_GENERATE_PATTERN = re.compile(
+    r"Tôi không thể tạo video|"
+    r"無法生成(?:視頻|影片)|无法生成视频|"
+    r"I cannot (?:generate|create) (?:the )?video|"
+    r"動画を生成できません",
     re.IGNORECASE,
 )
 
@@ -44,7 +65,7 @@ CLARIFICATION_PATTERN = re.compile(
 PROCEEDING_PATTERN = re.compile(
     r"I'll create|I will create|I'll generate|I will generate|"
     r"creating (?:a |an |the )?(?:stylized|video|animation)|"
-    r"Video generation (?:is |has |cur)|"
+    r"Video generation (?:is in progress|has started)|"
     r"作成します|生成します|生成を開始|生成中|動画を作成|"
     r"Video sẽ được tạo|hoàn tất trong vòng|Tôi sẽ gửi cho bạn",
     re.IGNORECASE,
@@ -444,6 +465,11 @@ async def poll_conversation(account: str, page, context, conversation_id: str,
                 raise AccountLimitedError(f"Account daily limit reached: {text[:120]}")
             if CREDIT_FAIL_PATTERN.search(text) and not PROCEEDING_PATTERN.search(text):
                 raise CreditInsufficientError(f"Insufficient quota: {text[:120]}")
+            if CANNOT_GENERATE_PATTERN.search(text):
+                raise RuntimeError(f"Dola từ chối tạo video: {text[:150]}")
+        if poll.get("hasFailure"):
+            fail_reason = poll.get("failureText") or "Dola từ chối tạo video"
+            raise RuntimeError(f"Dola từ chối tạo video: {fail_reason[:150]}")
         if poll.get("videos"):
             video_models = poll.get("videoModels", [])
             url = extract_unwatermarked_url(
@@ -455,31 +481,33 @@ async def poll_conversation(account: str, page, context, conversation_id: str,
                     "conversation_id": conversation_id, "account": account}
 
         # Check for Dola clarification requests (e.g. asking for duration confirmation)
-        is_clarifying = poll.get("isClarifying") or any(CLARIFICATION_PATTERN.search(t) for t in poll.get("texts", []))
-        if is_clarifying:
-            clarify_text = poll.get("clarifyingText") or (poll.get("texts") or [""])[0]
-            # If Dola's text indicates it's proceeding (not asking), skip auto-reply
-            if PROCEEDING_PATTERN.search(clarify_text):
+        clarify_text = ""
+        for t in poll.get("texts", []):
+            if CLARIFICATION_PATTERN.search(t):
+                clarify_text = t
+                break
+
+        if clarify_text:
+            fail_msg = (
+                f"Dola yêu cầu điều chỉnh thời lượng/kịch bản: \"{clarify_text.strip()}\". "
+                f"Vui lòng điều chỉnh lại prompt (ghi rõ thời lượng mong muốn từ 4-15s ở đầu prompt và tránh chia quá nhiều phân cảnh chi tiết)."
+            )
+            print(f"[{account}] Task failed on clarification: {fail_msg}", flush=True)
+            raise PromptClarificationError(fail_msg)
+
+        if poll.get("isClarifying"):
+            c_text = poll.get("clarifyingText") or (poll.get("texts")[0] if poll.get("texts") else "")
+            if c_text and PROCEEDING_PATTERN.search(c_text):
                 if not auto_replied:
-                    auto_replied = True  # Prevent future auto-replies
-                    print(f"[{account}] Dola flagged clarifying but is proceeding: '{clarify_text[:100]}', continuing poll...", flush=True)
-            elif not auto_replied:
-                auto_replied = True
-                auto_reply_time = time.time()
-                reply_dur = duration or 10
-                print(f"[{account}] Dola requested duration clarification: '{clarify_text[:80]}'. Auto-replying with '{reply_dur}s'...", flush=True)
-                try:
-                    box = page.locator("textarea, [contenteditable='true']").first
-                    if await box.count():
-                        await box.click(timeout=3000)
-                        await page.keyboard.type(f"{reply_dur}s", delay=80)
-                        await page.wait_for_timeout(400)
-                        await page.keyboard.press("Enter")
-                        print(f"[{account}] Sent auto-confirmation '{reply_dur}s' to chat input", flush=True)
-                        await asyncio.sleep(4)
-                        continue
-                except Exception as ex:
-                    print(f"[{account}] Failed to auto-reply to clarification: {ex}", flush=True)
+                    auto_replied = True
+                    print(f"[{account}] Dola flagged isClarifying but is proceeding: '{c_text[:100]}', continuing poll...", flush=True)
+            else:
+                fail_msg = (
+                    f"Dola yêu cầu điều chỉnh thời lượng/kịch bản: \"{(c_text or 'Video generation currently supports durations from 4 to 15 seconds.').strip()}\". "
+                    f"Vui lòng điều chỉnh lại prompt (ghi rõ thời lượng mong muốn từ 4-15s ở đầu prompt và tránh chia quá nhiều phân cảnh chi tiết)."
+                )
+                print(f"[{account}] Task failed on clarification flag: {fail_msg}", flush=True)
+                raise PromptClarificationError(fail_msg)
 
         print(f"  ...Generating ({int(time.time() - start)}s)", flush=True)
     raise TimeoutError(f"No video generated within {timeout}s (conversation_id={conversation_id})")
@@ -532,6 +560,11 @@ async def generate_video(account: str, prompt: str, ratio: str = None,
             use_extension=use_extension)
         try:
             page = context.pages[0] if context.pages else await context.new_page()
+            ACTIVE_WORKER_BROWSERS[account] = {
+                "context": context,
+                "page": page,
+                "started_at": time.time(),
+            }
             await page.goto("https://www.dola.com/chat", timeout=60000, wait_until="domcontentloaded")
             await page.wait_for_timeout(5000)
             cookies = await context.cookies("https://www.dola.com")
@@ -718,6 +751,7 @@ async def generate_video(account: str, prompt: str, ratio: str = None,
                 duration=duration, check_cancelled=check_cancelled
             )
         finally:
+            ACTIVE_WORKER_BROWSERS.pop(account, None)
             await context.close()
 
 

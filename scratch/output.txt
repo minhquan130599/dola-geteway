@@ -1,0 +1,166 @@
+
+================== CONV 38418051689822225 (name: Dola) ==================
+Messages count: 0
+
+================== CONV 38417926515745553 (name: Tạo video rau xanh) ==================
+Messages count: 6
+
+--- MSG id=None index=None sender=UNKNOWN_None ---
+  ext[ai_creation_res_code] = 710082023
+  ext[inner_msg_lang_code] = 
+  ext[input_skill] = {"skill_id":"0","skill_type":0}
+  TEXT: Tôi không thể tạo video và không có điểm tín dụng nào được sử dụng cho lần tạo này.
+
+--- MSG id=None index=None sender=UNKNOWN_None ---
+  ext[chat_ability] = {}
+  ext[inner_msg_lang_code] = not_lang
+  ext[input_skill] = {"skill_id":"0","skill_type":0}
+  TEXT: Tôi sẽ tạo video quảng cáo 15 giây, giữ đúng nhận diện sản phẩm rau xanh từ ảnh tham chiếu và dùng bếp hiện đại mới làm bối cảnh xuyên suốt.
+
+
+  TEXT: 
+Video sẽ sử dụng 3 điểm tín dụng và được tạo xong trong vòng 10 phút. Tôi sẽ cho bạn biết khi tạo xong.Bạn vẫn còn 0 điểm tín dụng video hôm nay.
+
+--- MSG id=None index=None sender=UNKNOWN_None ---
+  ext[chat_ability] = {}
+  ext[inner_msg_lang_code] = not_lang
+  ext[input_skill] = {"skill_id":"0","skill_type":0}
+  TEXT: 15
+
+--- MSG id=None index=None sender=UNKNOWN_None ---
+  ext[ai_creation_res_code] = 710082041
+  ext[chat_ability] = {"ability_type":17,"ability_param":"{\"ratio\":\"9:16\",\"model\":\"seedance_v2.0\",\"duration\":30,\"input_box_content\":{\"user_input_content\":\"Tạo video quảng cáo sản phẩm thực phẩm khung hình dọc 9:16, phong cách commercial food video chân thực, ánh sáng đẹp, chuyển cảnh nhanh, tự nhiên.\\nQUY TẮC THAM CHIẾU BẮT BUỘC:\\nVideo và ảnh tham chiếu CHỈ được sử dụng để nhận diện sản phẩm rau xanh và hình dạng thực tế của sản phẩm.\\nChỉ giữ: màu xanh tự nhiên, độ dài sợi rau, hình dạng bó rau, cách rau được đóng thành từng bó và túi bao bì trong suốt.\\nKhông sử dụng lại bất kỳ background nào từ ảnh/video mẫu. Không sao chép bàn gỗ, căn phòng, cây cảnh, bát đĩa, ánh sáng hoặc bố cục gốc.\\nToàn bộ background phải được tạo mới từ đầu.\\nBối cảnh mới xuyên suốt video: một khu bếp hiện đại sạch đẹp, mặt bàn bếp đá màu trung tính, hậu cảnh tối giản, ít đồ vật, ánh sáng ban ngày tự nhiên chiếu từ cửa sổ bên cạnh. Không gian có cảm giác căn bếp chung cư cao cấp, sạch sẽ, phù hợp quảng cáo thực phẩm.\\nCẢNH 1 – HOOK MỞ THÙNG\\nCamera đặt thấp ngang mặt bàn bếp, hướng trực diện.\\nMột bàn tay từ ngoài khung hình kéo thật nhanh một thùng carton chữ nhật lớn, không nhãn, không chữ, không logo vào gần camera.\\nThùng trượt nhanh trên mặt bàn rồi dừng lại ở giữa khung hình.\\nHai tay lập tức mở nhanh hai nắp thùng.\\nCamera hơi tiến vào bên trong thùng.\\nBên trong chứa nhiều túi rau xanh giống chính xác sản phẩm tham chiếu, được xếp ngay ngắn.\\nKhông dùng bất kỳ thùng, bàn hoặc background nào từ video gốc.\\nThời lượng khoảng 2 giây.\\nCẢNH 2 – LẤY SẢN PHẨM RA KHỎI THÙNG\\nMột bàn tay lấy một túi rau từ trong thùng lên.\\nTúi sản phẩm phải giống sản phẩm mẫu: túi nhựa trong suốt, bên trong có nhiều bó rau xanh dài được cuộn/xếp ngay ngắn.\\nNgười cầm đưa túi về gần camera rồi xoay nhẹ sang trái và phải để giới thiệu toàn bộ sản phẩm.\\nCamera focus vào rau bên trong túi, background bếp phía sau được xóa phông nhẹ.\\nKhông tự thêm logo, nhãn hoặc chữ lên túi nếu mẫu gốc không có.\\nThời lượng khoảng 2 giây.\\nCẢNH 3 – LẤY RA VÀ RỬA RAU\\nMatch cut sang một góc khác trong cùng căn bếp mới.\\nTay lấy một bó rau xanh ra khỏi túi.\\nCamera close-up vào bó rau.\\nNgười dùng nhúng bó rau xuống một tô nước sạch lớn màu trắng đặt trên mặt bàn bếp.\\nRau chuyển động tự nhiên trong nước, có các giọt nước bắn nhẹ.\\nTay nhấc rau lên khỏi tô, nước chảy thành từng giọt từ các cọng rau xuống bên dưới.\\nRau phải giữ đúng hình dạng, màu sắc và kích thước như mẫu tham chiếu, không biến thành loại rau khác.\\nThời lượng khoảng 2–2.5 giây.\\nCẢNH 4 – CẬN CẢNH NGUYÊN LIỆU\\nChuyển nhanh sang shot cận cảnh.\\nBó rau đã rửa sạch được giữ bằng một tay trước camera.\\nCamera macro chạy dọc theo thân rau để thể hiện độ xanh, độ tươi và bề mặt còn đọng nước.\\nSau đó tay đặt rau xuống mặt bàn chuẩn bị món ăn.\\nBackground vẫn là căn bếp mới, không quay lại background bàn gỗ của ảnh mẫu.\\nThời lượng khoảng 1.5 giây.\\nCẢNH 5 – MÓN RAU ĐÃ CHẾ BIẾN\\nChuyển cảnh sang món rau đã chế biến.\\nRau được cắt vừa ăn, trộn cùng gia vị, ớt đỏ và các nguyên liệu phù hợp.\\nThành phẩm được trình bày trên một chiếc đĩa sứ sạch, đẹp và tối giản.\\nMột bàn tay đẩy đĩa từ phía xa tiến về phía camera.\\nCamera dolly-in đồng thời để món ăn trông hấp dẫn hơn.\\nKhông sao chép chiếc bàn, chiếc đĩa hoặc background từ video mẫu; chỉ tham khảo hình thức món ăn và nguyên liệu rau.\\nThời lượng khoảng 2 giây.\\nCẢNH 6 – GẮP RAU VÀ THỊT\\nGóc quay close-up food commercial.\\nMột đôi đũa gắp một miếng thịt cùng một ít rau xanh từ đĩa lên.\\nĐũa từ từ đưa miếng thịt và rau về gần camera.\\nCamera rack focus từ đĩa thức ăn phía sau sang phần thịt và rau đang được gắp ở phía trước.\\nRau nhìn xanh, bóng nhẹ, còn độ giòn; thịt có texture rõ ràng.\\nBackground bếp mới được blur mạnh để món ăn trở thành chủ thể duy nhất.\\nThời lượng khoảng 2 giây.\\nCẢNH 7 – HERO SHOT KẾT VIDEO\\nĐặt túi sản phẩm rau còn nguyên bên cạnh đĩa món ăn đã hoàn thiện.\\nMột vài bó rau tươi được bố trí tự nhiên cạnh đó để thể hiện nguyên liệu.\\nCamera trượt nhẹ từ trái sang phải rồi từ từ tiến gần sản phẩm.\\nFocus cuối cùng vào túi rau chính.\\nÁnh sáng mềm từ cửa sổ tạo cảm giác tươi, sạch và cao cấp.\\nKết thúc bằng một hero shot sản phẩm rõ nét.\\nYÊU CẦU ĐỒNG NHẤT SẢN PHẨM:\\nThe reference media is for PRODUCT IDENTITY ONLY.\\nKeep exactly the same vegetable type, long green shape, natural green tone, bunch structure and transparent package appearance from the reference.\\nIgnore and completely replace every original background from all reference images and videos.\\nEvery scene must take place in the newly generated modern kitchen environment.\\nDo not recreate the original wooden table.\\nDo not recreate the original room.\\nDo not copy original plates, chairs, plants or furniture.\\nThe product must remain visually consistent between every shot.\\nKhông được:\\n- biến rau thành loại rau khác;\\n- làm cọng rau ngắn hoặc dày bất thường;\\n- làm thay đổi màu xanh;\\n- làm túi sản phẩm méo;\\n- sinh thêm các bó rau bất thường;\\n- thay đổi số lượng hoặc cấu trúc sản phẩm vô lý;\\n- tạo tay thừa/ngón tay thừa;\\n- thêm chữ ngẫu nhiên;\\n- thêm logo giả;\\n- thêm watermark;\\n- thêm subtitle;\\n- thêm biểu tượng TikTok.\\nPhong cách: photorealistic food commercial, premium food advertising, cinematic macro shots, realistic hands, realistic food texture, smooth camera movement, natural physics, shallow depth of field, professional food lighting, high detail, realistic water droplets.\\nTỉ lệ: 9:16 vertical.\\nNhịp video: nhanh ở 3 giây đầu để giữ người xem, sau đó chuyển sang các shot quảng cáo sản phẩm và món ăn mượt hơn.\",\"reply_message_format\":\"Video đã tạo: %s\"}}"}
+  ext[inner_msg_lang_code] = vi
+  ext[input_skill] = {"skill_id":"17","skill_type":17}
+  ext[is_creation_clarifying] = 1
+  TEXT: Video generation currently supports durations from 4 to 15 seconds. I can generate it at the nearest supported duration of 15 seconds.
+
+--- MSG id=None index=None sender=UNKNOWN_None ---
+  ext[chat_ability] = {"ability_type":17,"ability_param":"{\"ratio\":\"9:16\",\"model\":\"seedance_v2.0\",\"duration\":30,\"input_box_content\":{\"user_input_content\":\"Tạo video quảng cáo sản phẩm thực phẩm khung hình dọc 9:16, phong cách commercial food video chân thực, ánh sáng đẹp, chuyển cảnh nhanh, tự nhiên.\\nQUY TẮC THAM CHIẾU BẮT BUỘC:\\nVideo và ảnh tham chiếu CHỈ được sử dụng để nhận diện sản phẩm rau xanh và hình dạng thực tế của sản phẩm.\\nChỉ giữ: màu xanh tự nhiên, độ dài sợi rau, hình dạng bó rau, cách rau được đóng thành từng bó và túi bao bì trong suốt.\\nKhông sử dụng lại bất kỳ background nào từ ảnh/video mẫu. Không sao chép bàn gỗ, căn phòng, cây cảnh, bát đĩa, ánh sáng hoặc bố cục gốc.\\nToàn bộ background phải được tạo mới từ đầu.\\nBối cảnh mới xuyên suốt video: một khu bếp hiện đại sạch đẹp, mặt bàn bếp đá màu trung tính, hậu cảnh tối giản, ít đồ vật, ánh sáng ban ngày tự nhiên chiếu từ cửa sổ bên cạnh. Không gian có cảm giác căn bếp chung cư cao cấp, sạch sẽ, phù hợp quảng cáo thực phẩm.\\nCẢNH 1 – HOOK MỞ THÙNG\\nCamera đặt thấp ngang mặt bàn bếp, hướng trực diện.\\nMột bàn tay từ ngoài khung hình kéo thật nhanh một thùng carton chữ nhật lớn, không nhãn, không chữ, không logo vào gần camera.\\nThùng trượt nhanh trên mặt bàn rồi dừng lại ở giữa khung hình.\\nHai tay lập tức mở nhanh hai nắp thùng.\\nCamera hơi tiến vào bên trong thùng.\\nBên trong chứa nhiều túi rau xanh giống chính xác sản phẩm tham chiếu, được xếp ngay ngắn.\\nKhông dùng bất kỳ thùng, bàn hoặc background nào từ video gốc.\\nThời lượng khoảng 2 giây.\\nCẢNH 2 – LẤY SẢN PHẨM RA KHỎI THÙNG\\nMột bàn tay lấy một túi rau từ trong thùng lên.\\nTúi sản phẩm phải giống sản phẩm mẫu: túi nhựa trong suốt, bên trong có nhiều bó rau xanh dài được cuộn/xếp ngay ngắn.\\nNgười cầm đưa túi về gần camera rồi xoay nhẹ sang trái và phải để giới thiệu toàn bộ sản phẩm.\\nCamera focus vào rau bên trong túi, background bếp phía sau được xóa phông nhẹ.\\nKhông tự thêm logo, nhãn hoặc chữ lên túi nếu mẫu gốc không có.\\nThời lượng khoảng 2 giây.\\nCẢNH 3 – LẤY RA VÀ RỬA RAU\\nMatch cut sang một góc khác trong cùng căn bếp mới.\\nTay lấy một bó rau xanh ra khỏi túi.\\nCamera close-up vào bó rau.\\nNgười dùng nhúng bó rau xuống một tô nước sạch lớn màu trắng đặt trên mặt bàn bếp.\\nRau chuyển động tự nhiên trong nước, có các giọt nước bắn nhẹ.\\nTay nhấc rau lên khỏi tô, nước chảy thành từng giọt từ các cọng rau xuống bên dưới.\\nRau phải giữ đúng hình dạng, màu sắc và kích thước như mẫu tham chiếu, không biến thành loại rau khác.\\nThời lượng khoảng 2–2.5 giây.\\nCẢNH 4 – CẬN CẢNH NGUYÊN LIỆU\\nChuyển nhanh sang shot cận cảnh.\\nBó rau đã rửa sạch được giữ bằng một tay trước camera.\\nCamera macro chạy dọc theo thân rau để thể hiện độ xanh, độ tươi và bề mặt còn đọng nước.\\nSau đó tay đặt rau xuống mặt bàn chuẩn bị món ăn.\\nBackground vẫn là căn bếp mới, không quay lại background bàn gỗ của ảnh mẫu.\\nThời lượng khoảng 1.5 giây.\\nCẢNH 5 – MÓN RAU ĐÃ CHẾ BIẾN\\nChuyển cảnh sang món rau đã chế biến.\\nRau được cắt vừa ăn, trộn cùng gia vị, ớt đỏ và các nguyên liệu phù hợp.\\nThành phẩm được trình bày trên một chiếc đĩa sứ sạch, đẹp và tối giản.\\nMột bàn tay đẩy đĩa từ phía xa tiến về phía camera.\\nCamera dolly-in đồng thời để món ăn trông hấp dẫn hơn.\\nKhông sao chép chiếc bàn, chiếc đĩa hoặc background từ video mẫu; chỉ tham khảo hình thức món ăn và nguyên liệu rau.\\nThời lượng khoảng 2 giây.\\nCẢNH 6 – GẮP RAU VÀ THỊT\\nGóc quay close-up food commercial.\\nMột đôi đũa gắp một miếng thịt cùng một ít rau xanh từ đĩa lên.\\nĐũa từ từ đưa miếng thịt và rau về gần camera.\\nCamera rack focus từ đĩa thức ăn phía sau sang phần thịt và rau đang được gắp ở phía trước.\\nRau nhìn xanh, bóng nhẹ, còn độ giòn; thịt có texture rõ ràng.\\nBackground bếp mới được blur mạnh để món ăn trở thành chủ thể duy nhất.\\nThời lượng khoảng 2 giây.\\nCẢNH 7 – HERO SHOT KẾT VIDEO\\nĐặt túi sản phẩm rau còn nguyên bên cạnh đĩa món ăn đã hoàn thiện.\\nMột vài bó rau tươi được bố trí tự nhiên cạnh đó để thể hiện nguyên liệu.\\nCamera trượt nhẹ từ trái sang phải rồi từ từ tiến gần sản phẩm.\\nFocus cuối cùng vào túi rau chính.\\nÁnh sáng mềm từ cửa sổ tạo cảm giác tươi, sạch và cao cấp.\\nKết thúc bằng một hero shot sản phẩm rõ nét.\\nYÊU CẦU ĐỒNG NHẤT SẢN PHẨM:\\nThe reference media is for PRODUCT IDENTITY ONLY.\\nKeep exactly the same vegetable type, long green shape, natural green tone, bunch structure and transparent package appearance from the reference.\\nIgnore and completely replace every original background from all reference images and videos.\\nEvery scene must take place in the newly generated modern kitchen environment.\\nDo not recreate the original wooden table.\\nDo not recreate the original room.\\nDo not copy original plates, chairs, plants or furniture.\\nThe product must remain visually consistent between every shot.\\nKhông được:\\n- biến rau thành loại rau khác;\\n- làm cọng rau ngắn hoặc dày bất thường;\\n- làm thay đổi màu xanh;\\n- làm túi sản phẩm méo;\\n- sinh thêm các bó rau bất thường;\\n- thay đổi số lượng hoặc cấu trúc sản phẩm vô lý;\\n- tạo tay thừa/ngón tay thừa;\\n- thêm chữ ngẫu nhiên;\\n- thêm logo giả;\\n- thêm watermark;\\n- thêm subtitle;\\n- thêm biểu tượng TikTok.\\nPhong cách: photorealistic food commercial, premium food advertising, cinematic macro shots, realistic hands, realistic food texture, smooth camera movement, natural physics, shallow depth of field, professional food lighting, high detail, realistic water droplets.\\nTỉ lệ: 9:16 vertical.\\nNhịp video: nhanh ở 3 giây đầu để giữ người xem, sau đó chuyển sang các shot quảng cáo sản phẩm và món ăn mượt hơn.\",\"reply_message_format\":\"Video đã tạo: %s\"}}"}
+  ext[inner_msg_lang_code] = vi
+  ext[input_skill] = {"skill_id":"17","skill_type":17}
+  TEXT: Video đã tạo: Tạo video quảng cáo sản phẩm thực phẩm khung hình dọc 9:16, phong cách commercial food video chân thực, ánh sáng đẹp, chuyển cảnh nhanh, tự nhiên.
+QUY TẮC THAM CHIẾU BẮT BUỘC:
+Video và ảnh tham chiếu CHỈ được sử dụng để nhận diện sản phẩm rau xanh và hình dạng thực tế của sản phẩm.
+Chỉ giữ: màu xanh tự nhiên, độ dài sợi rau, hình dạng bó rau, cách rau được đóng thành từng bó và túi bao bì trong suốt.
+Không sử dụng lại bất kỳ background nào từ ảnh/video mẫu. Không sao chép bàn gỗ, căn phòng, cây cảnh, bát đĩa, ánh sáng hoặc bố cục gốc.
+Toàn bộ background phải được tạo mới từ đầu.
+Bối cảnh mới xuyên suốt video: một khu bếp hiện đại sạch đẹp, mặt bàn bếp đá màu trung tính, hậu cảnh tối giản, ít đồ vật, ánh sáng ban ngày tự nhiên chiếu từ cửa sổ bên cạnh. Không gian có cảm giác căn bếp chung cư cao cấp, sạch sẽ, phù hợp quảng cáo thực phẩm.
+CẢNH 1 – HOOK MỞ THÙNG
+Camera đặt thấp ngang mặt bàn bếp, hướng trực diện.
+Một bàn tay từ ngoài khung hình kéo thật nhanh một thùng carton chữ nhật lớn, không nhãn, không chữ, không logo vào gần camera.
+Thùng trượt nhanh trên mặt bàn rồi dừng lại ở giữa khung hình.
+Hai tay lập tức mở nhanh hai nắp thùng.
+Camera hơi tiến vào bên trong thùng.
+Bên trong chứa nhiều túi rau xanh giống chính xác sản phẩm tham chiếu, được xếp ngay ngắn.
+Không dùng bất kỳ thùng, bàn hoặc background nào từ video gốc.
+Thời lượng khoảng 2 giây.
+CẢNH 2 – LẤY SẢN PHẨM RA KHỎI THÙNG
+Một bàn tay lấy một túi rau từ trong thùng lên.
+Túi sản phẩm phải giống sản phẩm mẫu: túi nhựa trong suốt, bên trong có nhiều bó rau xanh dài được cuộn/xếp ngay ngắn.
+Người cầm đưa túi về gần camera rồi xoay nhẹ sang trái và phải để giới thiệu toàn bộ sản phẩm.
+Camera focus vào rau bên trong túi, background bếp phía sau được xóa phông nhẹ.
+Không tự thêm logo, nhãn hoặc chữ lên túi nếu mẫu gốc không có.
+Thời lượng khoảng 2 giây.
+CẢNH 3 – LẤY RA VÀ RỬA RAU
+Match cut sang một góc khác trong cùng căn bếp mới.
+Tay lấy một bó rau xanh ra khỏi túi.
+Camera close-up vào bó rau.
+Người dùng nhúng bó rau xuống một tô nước sạch lớn màu trắng đặt trên mặt bàn bếp.
+Rau chuyển động tự nhiên trong nước, có các giọt nước bắn nhẹ.
+Tay nhấc rau lên khỏi tô, nước chảy thành từng giọt từ các cọng rau xuống bên dưới.
+Rau phải giữ đúng hình dạng, màu sắc và kích thước như mẫu tham chiếu, không biến thành loại rau khác.
+Thời lượng khoảng 2–2.5 giây.
+CẢNH 4 – CẬN CẢNH NGUYÊN LIỆU
+Chuyển nhanh sang shot cận cảnh.
+Bó rau đã rửa sạch được giữ bằng một tay trước camera.
+Camera macro chạy dọc theo thân rau để thể hiện độ xanh, độ tươi và bề mặt còn đọng nước.
+Sau đó tay đặt rau xuống mặt bàn chuẩn bị món ăn.
+Background vẫn là căn bếp mới, không quay lại background bàn gỗ của ảnh mẫu.
+Thời lượng khoảng 1.5 giây.
+CẢNH 5 – MÓN RAU ĐÃ CHẾ BIẾN
+Chuyển cảnh sang món rau đã chế biến.
+Rau được cắt vừa ăn, trộn cùng gia vị, ớt đỏ và các nguyên liệu phù hợp.
+Thành phẩm được trình bày trên một chiếc đĩa sứ sạch, đẹp và tối giản.
+Một bàn tay đẩy đĩa từ phía xa tiến về phía camera.
+Camera dolly-in đồng thời để món ăn trông hấp dẫn hơn.
+Không sao chép chiếc bàn, chiếc đĩa hoặc background từ video mẫu; chỉ tham khảo hình thức món ăn và nguyên liệu rau.
+Thời lượng khoảng 2 giây.
+CẢNH 6 – GẮP RAU VÀ THỊT
+Góc quay close-up food commercial.
+Một đôi đũa gắp một miếng thịt cùng một ít rau xanh từ đĩa lên.
+Đũa từ từ đưa miếng thịt và rau về gần camera.
+Camera rack focus từ đĩa thức ăn phía sau sang phần thịt và rau đang được gắp ở phía trước.
+Rau nhìn xanh, bóng nhẹ, còn độ giòn; thịt có texture rõ ràng.
+Background bếp mới được blur mạnh để món ăn trở thành chủ thể duy nhất.
+Thời lượng khoảng 2 giây.
+CẢNH 7 – HERO SHOT KẾT VIDEO
+Đặt túi sản phẩm rau còn nguyên bên cạnh đĩa món ăn đã hoàn thiện.
+Một vài bó rau tươi được bố trí tự nhiên cạnh đó để thể hiện nguyên liệu.
+Camera trượt nhẹ từ trái sang phải rồi từ từ tiến gần sản phẩm.
+Focus cuối cùng vào túi rau chính.
+Ánh sáng mềm từ cửa sổ tạo cảm giác tươi, sạch và cao cấp.
+Kết thúc bằng một hero shot sản phẩm rõ nét.
+YÊU CẦU ĐỒNG NHẤT SẢN PHẨM:
+The reference media is for PRODUCT IDENTITY ONLY.
+Keep exactly the same vegetable type, long green shape, natural green tone, bunch structure and transparent package appearance from the reference.
+Ignore and completely replace every original background from all reference images and videos.
+Every scene must take place in the newly generated modern kitchen environment.
+Do not recreate the original wooden table.
+Do not recreate the original room.
+Do not copy original plates, chairs, plants or furniture.
+The product must remain visually consistent between every shot.
+Không được:
+- biến rau thành loại rau khác;
+- làm cọng rau ngắn hoặc dày bất thường;
+- làm thay đổi màu xanh;
+- làm túi sản phẩm méo;
+- sinh thêm các bó rau bất thường;
+- thay đổi số lượng hoặc cấu trúc sản phẩm vô lý;
+- tạo tay thừa/ngón tay thừa;
+- thêm chữ ngẫu nhiên;
+- thêm logo giả;
+- thêm watermark;
+- thêm subtitle;
+- thêm biểu tượng TikTok.
+Phong cách: photorealistic food commercial, premium food advertising, cinematic macro shots, realistic hands, realistic food texture, smooth camera movement, natural physics, shallow depth of field, professional food lighting, high detail, realistic water droplets.
+Tỉ lệ: 9:16 vertical.
+Nhịp video: nhanh ở 3 giây đầu để giữ người xem, sau đó chuyển sang các shot quảng cáo sản phẩm và món ăn mượt hơn., 9:16
+
+--- MSG id=None index=None sender=UNKNOWN_None ---
+  ext[chat_ability] = {"ability_type":17,"ability_param":"{\"ratio\":\"9:16\",\"model\":\"seedance_v2.0\",\"duration\":30,\"input_box_content\":{\"user_input_content\":\"Tạo video quảng cáo sản phẩm thực phẩm khung hình dọc 9:16, phong cách commercial food video chân thực, ánh sáng đẹp, chuyển cảnh nhanh, tự nhiên.\\nQUY TẮC THAM CHIẾU BẮT BUỘC:\\nVideo và ảnh tham chiếu CHỈ được sử dụng để nhận diện sản phẩm rau xanh và hình dạng thực tế của sản phẩm.\\nChỉ giữ: màu xanh tự nhiên, độ dài sợi rau, hình dạng bó rau, cách rau được đóng thành từng bó và túi bao bì trong suốt.\\nKhông sử dụng lại bất kỳ background nào từ ảnh/video mẫu. Không sao chép bàn gỗ, căn phòng, cây cảnh, bát đĩa, ánh sáng hoặc bố cục gốc.\\nToàn bộ background phải được tạo mới từ đầu.\\nBối cảnh mới xuyên suốt video: một khu bếp hiện đại sạch đẹp, mặt bàn bếp đá màu trung tính, hậu cảnh tối giản, ít đồ vật, ánh sáng ban ngày tự nhiên chiếu từ cửa sổ bên cạnh. Không gian có cảm giác căn bếp chung cư cao cấp, sạch sẽ, phù hợp quảng cáo thực phẩm.\\nCẢNH 1 – HOOK MỞ THÙNG\\nCamera đặt thấp ngang mặt bàn bếp, hướng trực diện.\\nMột bàn tay từ ngoài khung hình kéo thật nhanh một thùng carton chữ nhật lớn, không nhãn, không chữ, không logo vào gần camera.\\nThùng trượt nhanh trên mặt bàn rồi dừng lại ở giữa khung hình.\\nHai tay lập tức mở nhanh hai nắp thùng.\\nCamera hơi tiến vào bên trong thùng.\\nBên trong chứa nhiều túi rau xanh giống chính xác sản phẩm tham chiếu, được xếp ngay ngắn.\\nKhông dùng bất kỳ thùng, bàn hoặc background nào từ video gốc.\\nThời lượng khoảng 2 giây.\\nCẢNH 2 – LẤY SẢN PHẨM RA KHỎI THÙNG\\nMột bàn tay lấy một túi rau từ trong thùng lên.\\nTúi sản phẩm phải giống sản phẩm mẫu: túi nhựa trong suốt, bên trong có nhiều bó rau xanh dài được cuộn/xếp ngay ngắn.\\nNgười cầm đưa túi về gần camera rồi xoay nhẹ sang trái và phải để giới thiệu toàn bộ sản phẩm.\\nCamera focus vào rau bên trong túi, background bếp phía sau được xóa phông nhẹ.\\nKhông tự thêm logo, nhãn hoặc chữ lên túi nếu mẫu gốc không có.\\nThời lượng khoảng 2 giây.\\nCẢNH 3 – LẤY RA VÀ RỬA RAU\\nMatch cut sang một góc khác trong cùng căn bếp mới.\\nTay lấy một bó rau xanh ra khỏi túi.\\nCamera close-up vào bó rau.\\nNgười dùng nhúng bó rau xuống một tô nước sạch lớn màu trắng đặt trên mặt bàn bếp.\\nRau chuyển động tự nhiên trong nước, có các giọt nước bắn nhẹ.\\nTay nhấc rau lên khỏi tô, nước chảy thành từng giọt từ các cọng rau xuống bên dưới.\\nRau phải giữ đúng hình dạng, màu sắc và kích thước như mẫu tham chiếu, không biến thành loại rau khác.\\nThời lượng khoảng 2–2.5 giây.\\nCẢNH 4 – CẬN CẢNH NGUYÊN LIỆU\\nChuyển nhanh sang shot cận cảnh.\\nBó rau đã rửa sạch được giữ bằng một tay trước camera.\\nCamera macro chạy dọc theo thân rau để thể hiện độ xanh, độ tươi và bề mặt còn đọng nước.\\nSau đó tay đặt rau xuống mặt bàn chuẩn bị món ăn.\\nBackground vẫn là căn bếp mới, không quay lại background bàn gỗ của ảnh mẫu.\\nThời lượng khoảng 1.5 giây.\\nCẢNH 5 – MÓN RAU ĐÃ CHẾ BIẾN\\nChuyển cảnh sang món rau đã chế biến.\\nRau được cắt vừa ăn, trộn cùng gia vị, ớt đỏ và các nguyên liệu phù hợp.\\nThành phẩm được trình bày trên một chiếc đĩa sứ sạch, đẹp và tối giản.\\nMột bàn tay đẩy đĩa từ phía xa tiến về phía camera.\\nCamera dolly-in đồng thời để món ăn trông hấp dẫn hơn.\\nKhông sao chép chiếc bàn, chiếc đĩa hoặc background từ video mẫu; chỉ tham khảo hình thức món ăn và nguyên liệu rau.\\nThời lượng khoảng 2 giây.\\nCẢNH 6 – GẮP RAU VÀ THỊT\\nGóc quay close-up food commercial.\\nMột đôi đũa gắp một miếng thịt cùng một ít rau xanh từ đĩa lên.\\nĐũa từ từ đưa miếng thịt và rau về gần camera.\\nCamera rack focus từ đĩa thức ăn phía sau sang phần thịt và rau đang được gắp ở phía trước.\\nRau nhìn xanh, bóng nhẹ, còn độ giòn; thịt có texture rõ ràng.\\nBackground bếp mới được blur mạnh để món ăn trở thành chủ thể duy nhất.\\nThời lượng khoảng 2 giây.\\nCẢNH 7 – HERO SHOT KẾT VIDEO\\nĐặt túi sản phẩm rau còn nguyên bên cạnh đĩa món ăn đã hoàn thiện.\\nMột vài bó rau tươi được bố trí tự nhiên cạnh đó để thể hiện nguyên liệu.\\nCamera trượt nhẹ từ trái sang phải rồi từ từ tiến gần sản phẩm.\\nFocus cuối cùng vào túi rau chính.\\nÁnh sáng mềm từ cửa sổ tạo cảm giác tươi, sạch và cao cấp.\\nKết thúc bằng một hero shot sản phẩm rõ nét.\\nYÊU CẦU ĐỒNG NHẤT SẢN PHẨM:\\nThe reference media is for PRODUCT IDENTITY ONLY.\\nKeep exactly the same vegetable type, long green shape, natural green tone, bunch structure and transparent package appearance from the reference.\\nIgnore and completely replace every original background from all reference images and videos.\\nEvery scene must take place in the newly generated modern kitchen environment.\\nDo not recreate the original wooden table.\\nDo not recreate the original room.\\nDo not copy original plates, chairs, plants or furniture.\\nThe product must remain visually consistent between every shot.\\nKhông được:\\n- biến rau thành loại rau khác;\\n- làm cọng rau ngắn hoặc dày bất thường;\\n- làm thay đổi màu xanh;\\n- làm túi sản phẩm méo;\\n- sinh thêm các bó rau bất thường;\\n- thay đổi số lượng hoặc cấu trúc sản phẩm vô lý;\\n- tạo tay thừa/ngón tay thừa;\\n- thêm chữ ngẫu nhiên;\\n- thêm logo giả;\\n- thêm watermark;\\n- thêm subtitle;\\n- thêm biểu tượng TikTok.\\nPhong cách: photorealistic food commercial, premium food advertising, cinematic macro shots, realistic hands, realistic food texture, smooth camera movement, natural physics, shallow depth of field, professional food lighting, high detail, realistic water droplets.\\nTỉ lệ: 9:16 vertical.\\nNhịp video: nhanh ở 3 giây đầu để giữ người xem, sau đó chuyển sang các shot quảng cáo sản phẩm và món ăn mượt hơn.\",\"reply_message_format\":\"Video đã tạo: %s\"}}"}
+  ext[inner_msg_lang_code] = vi
+  ext[input_skill] = {"skill_id":"17","skill_type":17}
+  ATTACHMENT: 5 attachments
+
+================== CONV 38418051847933713 (name: Tạo video quảng cáo) ==================
+Messages count: 4
+
+--- MSG id=None index=None sender=UNKNOWN_None ---
+  ext[ai_creation_res_code] = 0
+  ext[inner_msg_lang_code] = 
+  ext[input_skill] = {"skill_id":"17","skill_type":17}
+  TEXT: Đã tạo xong video cho bạn.
+  CREATION: {"creations": [{"type": 2, "id": "1545969322330385", "gen_detail": {"task_type": 6}, "can_publish": true, "video": {"vid": "v186a3gm000cdb2g4qfog65s69n81pp0", "cover": {"key": "tos-mya-p-50851/ocQQwE4BNJ0IqxBfKIkxGQNaNzfDqBFpYZVFBB", "image_thumb": {"url": "https://p16-flow-image-sign.ibyteimg.com/tos-mya-p-50851/ocQQwE4BNJ0IqxBfKIkxGQNaNzfDqBFpYZVFBB~tplv-0es2k971ck-downsize.png?rcl=20261006221046B8B47BB6CE45AE002835&rk3s=8e244e95&rrcfp=01d7ed46&x-expires=2106656130&x-signature=fQyxr3IBo6Vv%2BgvmyaiP7ZvgJV4%3D", "width": 384, "height": 682, "url_formats": {"heic": "https://p16-flow-image-sign.ibyteimg.com/tos-mya-p-50851/ocQQwE4BNJ0IqxBfKIkxGQNaNzfDqBFpYZVFBB~tplv-0es2k971ck-heic.heic?rcl=20261006221046B8B47BB6CE45AE002835&rk3s=8e244e95&rrcfp=01d7ed46&x-expires=2106656130&x-signature=WIMjBfttipVKPmxtBUbTbCBtC%2FA%3D"}}, "image_preview": {"url": "https://p16-flow-image-sign.ibyteimg.com/tos-mya-p-50851/ocQQwE4BNJ0IqxBfKIkxGQNaNzfDqBFpYZVFBB~tplv-0es2k971ck-image.heic?rcl=20261006221046B8B47BB6CE45AE002835&rk3s=8e244e95&rrcfp=01d7ed46&x-expires=2106656130&x-signature=aYXxci0KEYhHljcHeRizkzHeiPA%3D", "width": 720, "height": 1280}}, "status": 3, "width": 384, "height": 682, "duration": 15.105, "video_type": "mp4", "download_url": "http://v19-dola.dola.com/e00ac8a6e398b4b5e08744eeed38b164/7d910591/video/tos/mya/tos-mya-ve-50851/oA8TeOOegV3LAhQ0BQHXkUfMCpcRiibKThwjAL/?a=489823&ch=0&cr=7&dr=0&er=0&lr=cici_ai&cd=0%7C0%7C0%7C1&cv=1&br=3926&bt=1963&cs=4&ds=4&ft=ApKAtl7ThWH66Q-Trbmo0P31&mime_type=video_mp4&qs=0&rc=M2RpNDo6Zzg2ODZkZjs7OUBpM3M7PHY5cnRqZWYzcDY5NEBfMjFfNDItNjIxL2NeNGEyYSNtLmszMmRjMS9hLS1kXjVzcw%3D%3D&dy_q=1791296130&l=20261006221046B8B47BB6CE45AE002835&download=true", "video_model": "{\"status\":10,\"message\":\"success\",\"enable_ssl\":true,\"auto_definition\":\"360p\",\"enable_adaptive\":false,\"video_id\":\"v186a3gm000cdb2g4qfog65s69n81pp0\",\"video_duration\":15.105,\"media_type\":\"video\",\"url_expire\":2106656144,\"fallback_api\":\"https://vod-urls-mya.byteintlapi.com/video/fplay/1/b0aed507d74fa56a2f3ace10f823ee94/v186a3gm000cdb2g4qfog65s69n81pp0?aid=489823&codec_type=3&device_platform=unknown&force_fids=ZWM1Ng%3D%3D&imp=false&key_seed=GS8Irbby0u9zgJUJutHHs1UR4ARO%2BaWsChHFTlWQbB0%3D&logo_type=unwatermarked&multi_rate_audios=true&stream_type=normal&vps=6\",\"video_list\":{\"video_1\":{\"definition\":\"1080p\",\"quality\":\"normal\",\"vtype\":\"mp4\",\"vwidth\":720,\"vheight\":1280,\"bitrate\":2019757,\"real_bitrate\":2019757,\"fps\":24,\"codec_type\":\"bytevc1\",\"size\":3813555,\"main_url\":\"aHR0cDovL3YxOS1kb2xhLmRvbGEuY29tLzQ1OGRmYWU3NTY2Mjc1MmFiOWEyYmEwNWE5YjM5N2Y3LzdkOTEwNTkwL3ZpZGVvL3Rvcy9teWEvdG9zLW15YS12ZS01MDg1MS9vc28xbVlRek1pQXlZQXNvNjE4MEdENERFaUlJZkM1QkVGQW5xaS8/YT00ODk4MjMmY2g9MCZjcj03JmRyPTAmZXI9MCZscj11bndhdGVybWFya2VkJmNkPTAlN0MwJTdDMCU3QzEmY3Y9MSZicj0zOTQ0JmJ0PTE5NzImY3M9NCZkcz00JmZ0PUFwS0F0bDdUaFdINnBRLVRyYm1vMFAzMSZtaW1lX3R5cGU9dmlkZW9fbXA0JnFzPTAmcmM9T1dablp6Um1OelU1Wm1RNU16WmxORUJwTTNNN1BIWTVjblJxWldZemNEWTVORUF5WWpRdVhsNWlYak14TTE0eVlESTFZU050TG1zek1tUmpNUzloTFMxa1hqVnpjdyUzRCUzRCZkeV9xPTE3OTEyOTYxMjkmbD0yMDI2MTAwNjIyMTA0NkI4QjQ3QkI2Q0U0NUFFMDAyODM1\",\"backup_url_1\":\"aHR0cDovL3YxNi1kb2xhLmRvbGEuY29tLzczZmZhZGQyYmI0N2VlMjZkOTk2ZWI2MTcyOTFiMDIxLzdkOTEwNTkwL3ZpZGVvL3Rvcy9teWEvdG9zLW15YS12ZS01MDg1MS9vc28xbVlRek1pQXlZQXNvNjE4MEdENERFaUlJZkM1QkVGQW5xaS8/YT00ODk4MjMmY2g9MCZjcj03JmRyPTAmZXI9MCZscj11bndhdGVybWFya2VkJmNkPTAlN0MwJTdDMCU3QzEmY3Y9MSZicj0zOTQ0JmJ0PTE5NzImY3M9NCZkcz00JmZ0PUFwS0F0bDdUaFdINnBRLVRyYm1vMFAzMSZtaW1lX3R5cGU9dmlkZW9fbXA0JnFzPTAmcmM9T1dablp6Um1OelU1Wm1RNU16WmxORUJwTTNNN1BIWTVjblJxWldZemNEWTVORUF5WWpRdVhsNWlYak14TTE0eVlESTFZU050TG1zek1tUmpNUzloTFMxa1hqVnpjdyUzRCUzRCZkeV9xPTE3OTEyOTYxMjkmbD0yMDI2MTAwNjIyMTA0NkI4QjQ3QkI2Q0U0NUFFMDAyODM1\",\"file_id\":\"815bc350a66a4c66a2e4aca11d7dec56\",\"quality_type\":1,\"encryption_method\":\"\",\"audio_channels\":\"2.0\",\"audio_layout\":\"L R\",\"gear_des_key\":\"0:MP4|1:normal|2:h265_hvc1|4:1080p|5:normal\",\"url_expire\":2106656144,\"preload_size\":327680,\"preload_interval\":60,\"preload_min_step\":5,\"preload_max_step\":10,\"file_hash\":\"f1e94c1ccba375e2c9386f4222576521\"}},\"popularity_level\":0,\"has_embedded_subtitle\":false,\"poster_url\":\"http://p16-vodimg-default-sign.ibyteimg.com/tos-mya-p-50851/ocQQwE4BNJ0IqxBfKIkxGQNaNzfDqBFpYZVFBB~tplv-noop.image?x-expires=2106656144&x-signature=itN8ETosEg%2BkvbROUG%2FMWzUXEQ0%3D\",\"key_seed\":\"GS8Irbby0u9zgJUJutHHs1UR4ARO+aWsChHFTlWQbB0=\"}", "download_filehash": "7f4b02eb589bc4b725fccb094382ce9b"}}]}
+
+--- MSG id=None index=None sender=UNKNOWN_None ---
+  ext[chat_ability] = {"ability_type":17,"ability_param":"{\"ratio\":\"9:16\",\"model\":\"seedance_v2.0\",\"duration\":30,\"input_box_content\":{\"user_input_content\":\"tạo video với phân cảnh đầu là cảnh 1 bàn tay kéo nhanh 1 thùng catton chữ nhật to không nhãn vào camera, sau đó mở thùng nhanh và lấy ra các hộp sản phẩm để quảng cáo, sau đó chuyển cảnh qua các cảnh khác để quảng cáo sản phẩm( ít nhất 3 cảnh) tham chiếu với các ảnh tôi gửi, thay bối cảnh toàn thể video bằng bối cảnh phù hợp với sản phẩm, không làm biến dạng sản phẩm gốc\",\"reply_message_format\":\"Video đã tạo: %s\"}}"}
+  ext[inner_msg_lang_code] = vi
+  ext[input_skill] = {"skill_id":"17","skill_type":17}
+  TEXT:  Tôi sẽ tạo video quảng cáo 9:16, 15 giây theo yêu cầu của bạn. Đang xử lý...
+
+
+  TEXT: 
+Video này sẽ được tạo bằng **mô hình Seedance 2.0** sau 15 phút. Tôi sẽ cho bạn biết khi tạo xong. Bạn còn 3 điểm tín dụng video hôm nay.
+
+--- MSG id=None index=None sender=UNKNOWN_None ---
+  ext[chat_ability] = {"ability_type":17,"ability_param":"{\"ratio\":\"9:16\",\"model\":\"seedance_v2.0\",\"duration\":30,\"input_box_content\":{\"user_input_content\":\"tạo video với phân cảnh đầu là cảnh 1 bàn tay kéo nhanh 1 thùng catton chữ nhật to không nhãn vào camera, sau đó mở thùng nhanh và lấy ra các hộp sản phẩm để quảng cáo, sau đó chuyển cảnh qua các cảnh khác để quảng cáo sản phẩm( ít nhất 3 cảnh) tham chiếu với các ảnh tôi gửi, thay bối cảnh toàn thể video bằng bối cảnh phù hợp với sản phẩm, không làm biến dạng sản phẩm gốc\",\"reply_message_format\":\"Video đã tạo: %s\"}}"}
+  ext[inner_msg_lang_code] = vi
+  ext[input_skill] = {"skill_id":"17","skill_type":17}
+  TEXT: Video đã tạo: tạo video với phân cảnh đầu là cảnh 1 bàn tay kéo nhanh 1 thùng catton chữ nhật to không nhãn vào camera, sau đó mở thùng nhanh và lấy ra các hộp sản phẩm để quảng cáo, sau đó chuyển cảnh qua các cảnh khác để quảng cáo sản phẩm( ít nhất 3 cảnh) tham chiếu với các ảnh tôi gửi, thay bối cảnh toàn thể video bằng bối cảnh phù hợp với sản phẩm, không làm biến dạng sản phẩm gốc, 9:16
+
+--- MSG id=None index=None sender=UNKNOWN_None ---
+  ext[chat_ability] = {"ability_type":17,"ability_param":"{\"ratio\":\"9:16\",\"model\":\"seedance_v2.0\",\"duration\":30,\"input_box_content\":{\"user_input_content\":\"tạo video với phân cảnh đầu là cảnh 1 bàn tay kéo nhanh 1 thùng catton chữ nhật to không nhãn vào camera, sau đó mở thùng nhanh và lấy ra các hộp sản phẩm để quảng cáo, sau đó chuyển cảnh qua các cảnh khác để quảng cáo sản phẩm( ít nhất 3 cảnh) tham chiếu với các ảnh tôi gửi, thay bối cảnh toàn thể video bằng bối cảnh phù hợp với sản phẩm, không làm biến dạng sản phẩm gốc\",\"reply_message_format\":\"Video đã tạo: %s\"}}"}
+  ext[inner_msg_lang_code] = vi
+  ext[input_skill] = {"skill_id":"17","skill_type":17}
+  ATTACHMENT: 4 attachments

@@ -100,6 +100,9 @@ class TaskStore:
                     self._conn.execute(f"ALTER TABLE api_keys ADD COLUMN {column} {definition}")
                 except sqlite3.OperationalError:
                     pass
+            self._conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at DESC)")
+            self._conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
+            self._conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_account ON tasks(account)")
             self._conn.commit()
 
     @staticmethod
@@ -204,6 +207,8 @@ class TaskStore:
         if not fields:
             return
         fields["updated_at"] = time.time()
+        if fields.get("status") in ("completed", "failed"):
+            fields.setdefault("reference_images", "[]")
         cols = ", ".join(f"{k}=?" for k in fields)
         vals = list(fields.values()) + [task_id]
         with _LOCK:
@@ -256,15 +261,21 @@ class TaskStore:
             ).fetchone()[0]
 
     def recent_tasks(self, limit: int = 50, api_key_hash: str | None = None) -> list:
+        cols = (
+            "id, model, prompt, ratio, duration, status, video_url, error, "
+            "created_at, updated_at, conversation_id, deadline_at, last_poll_at, "
+            "failure_code, api_key_hash, api_key_name, started_at, finished_at, "
+            "client_concurrency_limit, account"
+        )
         with _LOCK:
             if api_key_hash:
                 rows = self._conn.execute(
-                    "SELECT * FROM tasks WHERE api_key_hash=? "
+                    f"SELECT {cols} FROM tasks WHERE api_key_hash=? "
                     "ORDER BY created_at DESC LIMIT ?", (api_key_hash, limit)
                 ).fetchall()
             else:
                 rows = self._conn.execute(
-                    "SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?", (limit,)
+                    f"SELECT {cols} FROM tasks ORDER BY created_at DESC LIMIT ?", (limit,)
                 ).fetchall()
         return [dict(r) for r in rows]
 
