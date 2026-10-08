@@ -20,6 +20,7 @@ from gap import find_gap_x
 
 import config
 from browser import cookie_value, launch_account_context
+from captcha_solver import find_captcha_frame, solve_any_captcha
 from dola_client import CREDIT_FAIL_PATTERN, CreditError
 from video_worker import POLL_JS, RiskControlError, _download, extract_unwatermarked_url
 
@@ -64,12 +65,16 @@ CANNOT_GENERATE_PATTERN = re.compile(
 # Pattern detecting Dola proceeding on its own (informational, not asking for input)
 PROCEEDING_PATTERN = re.compile(
     r"I'll create|I will create|I'll generate|I will generate|"
+    r"I can generate|I can create|"
     r"creating (?:a |an |the )?(?:stylized|video|animation)|"
     r"Video generation (?:is in progress|has started)|"
     r"作成します|生成します|生成を開始|生成中|動画を作成|"
-    r"Video sẽ được tạo|hoàn tất trong vòng|Tôi sẽ gửi cho bạn",
+    r"Tôi sẽ tạo|Video sẽ được tạo|sẽ được tạo|đang xử lý|đang tạo|"
+    r"hoàn tất trong vòng|Tôi sẽ gửi cho bạn|sau \d+ phút|trong vòng \d+ phút|"
+    r"Đã tạo xong|đã tạo|sử dụng \d+ điểm tín dụng",
     re.IGNORECASE,
 )
+
 
 
 class AccountLimitedError(Exception):
@@ -454,22 +459,7 @@ async def poll_conversation(account: str, page, context, conversation_id: str,
         if on_poll and now - last_callback >= 30:
             on_poll(now)
             last_callback = now
-        for text in poll.get("texts", []):
-            balance, _, source = _parse_balance_texts([text])
-            if balance is not None and on_balance:
-                try:
-                    on_balance(balance, source, is_poll=True)
-                except TypeError:
-                    on_balance(balance, source)
-            if DAILY_LIMIT_PATTERN.search(text):
-                raise AccountLimitedError(f"Account daily limit reached: {text[:120]}")
-            if CREDIT_FAIL_PATTERN.search(text) and not PROCEEDING_PATTERN.search(text):
-                raise CreditInsufficientError(f"Insufficient quota: {text[:120]}")
-            if CANNOT_GENERATE_PATTERN.search(text):
-                raise RuntimeError(f"Dola từ chối tạo video: {text[:150]}")
-        if poll.get("hasFailure"):
-            fail_reason = poll.get("failureText") or "Dola từ chối tạo video"
-            raise RuntimeError(f"Dola từ chối tạo video: {fail_reason[:150]}")
+        # 1. Success check: if video exists, download and return immediately!
         if poll.get("videos"):
             video_models = poll.get("videoModels", [])
             url = extract_unwatermarked_url(
@@ -480,34 +470,55 @@ async def poll_conversation(account: str, page, context, conversation_id: str,
             return {"video_url": url, "local_path": str(local),
                     "conversation_id": conversation_id, "account": account}
 
-        # Check for Dola clarification requests (e.g. asking for duration confirmation)
-        clarify_text = ""
-        for t in poll.get("texts", []):
-            if CLARIFICATION_PATTERN.search(t):
-                clarify_text = t
-                break
+        # 2. Parse balances and check daily limit or explicit failures
+        texts = poll.get("texts", [])
+        is_proceeding = any(PROCEEDING_PATTERN.search(t) for t in texts)
 
-        if clarify_text:
-            fail_msg = (
-                f"Dola yêu cầu điều chỉnh thời lượng/kịch bản: \"{clarify_text.strip()}\". "
-                f"Vui lòng điều chỉnh lại prompt (ghi rõ thời lượng mong muốn từ 4-15s ở đầu prompt và tránh chia quá nhiều phân cảnh chi tiết)."
-            )
-            print(f"[{account}] Task failed on clarification: {fail_msg}", flush=True)
-            raise PromptClarificationError(fail_msg)
+        for text in texts:
+            balance, _, source = _parse_balance_texts([text])
+            if balance is not None and on_balance:
+                try:
+                    on_balance(balance, source, is_poll=True)
+                except TypeError:
+                    on_balance(balance, source)
+            if DAILY_LIMIT_PATTERN.search(text):
+                raise AccountLimitedError(f"Account daily limit reached: {text[:120]}")
+            if CREDIT_FAIL_PATTERN.search(text) and not is_proceeding:
+                raise CreditInsufficientError(f"Insufficient quota: {text[:120]}")
+            if CANNOT_GENERATE_PATTERN.search(text) and not is_proceeding:
+                raise RuntimeError(f"Dola từ chối tạo video: {text[:150]}")
 
-        if poll.get("isClarifying"):
-            c_text = poll.get("clarifyingText") or (poll.get("texts")[0] if poll.get("texts") else "")
-            if c_text and PROCEEDING_PATTERN.search(c_text):
-                if not auto_replied:
-                    auto_replied = True
-                    print(f"[{account}] Dola flagged isClarifying but is proceeding: '{c_text[:100]}', continuing poll...", flush=True)
-            else:
+        # 3. If Dola is actively proceeding / generating, keep polling and ignore clarification / failure flags
+        if not is_proceeding:
+            if poll.get("hasFailure"):
+                fail_reason = poll.get("failureText") or "Dola từ chối tạo video"
+                if not PROCEEDING_PATTERN.search(fail_reason):
+                    raise RuntimeError(f"Dola từ chối tạo video: {fail_reason[:150]}")
+
+            # Check for Dola clarification requests (e.g. asking for duration confirmation without auto-proceeding)
+            clarify_text = ""
+            for t in texts:
+                if CLARIFICATION_PATTERN.search(t) and not PROCEEDING_PATTERN.search(t):
+                    clarify_text = t
+                    break
+
+            if clarify_text:
                 fail_msg = (
-                    f"Dola yêu cầu điều chỉnh thời lượng/kịch bản: \"{(c_text or 'Video generation currently supports durations from 4 to 15 seconds.').strip()}\". "
+                    f"Dola yêu cầu điều chỉnh thời lượng/kịch bản: \"{clarify_text.strip()}\". "
                     f"Vui lòng điều chỉnh lại prompt (ghi rõ thời lượng mong muốn từ 4-15s ở đầu prompt và tránh chia quá nhiều phân cảnh chi tiết)."
                 )
-                print(f"[{account}] Task failed on clarification flag: {fail_msg}", flush=True)
+                print(f"[{account}] Task failed on clarification: {fail_msg}", flush=True)
                 raise PromptClarificationError(fail_msg)
+
+            if poll.get("isClarifying"):
+                c_text = poll.get("clarifyingText") or (texts[0] if texts else "")
+                if not (c_text and PROCEEDING_PATTERN.search(c_text)):
+                    fail_msg = (
+                        f"Dola yêu cầu điều chỉnh thời lượng/kịch bản: \"{(c_text or 'Video generation currently supports durations from 4 to 15 seconds.').strip()}\". "
+                        f"Vui lòng điều chỉnh lại prompt (ghi rõ thời lượng mong muốn từ 4-15s ở đầu prompt và tránh chia quá nhiều phân cảnh chi tiết)."
+                    )
+                    print(f"[{account}] Task failed on clarification flag: {fail_msg}", flush=True)
+                    raise PromptClarificationError(fail_msg)
 
         print(f"  ...Generating ({int(time.time() - start)}s)", flush=True)
     raise TimeoutError(f"No video generated within {timeout}s (conversation_id={conversation_id})")
@@ -707,11 +718,11 @@ async def generate_video(account: str, prompt: str, ratio: str = None,
                     break
             print(f"[{account}] UI submitted prompt: {prompt[:40]}", flush=True)
 
-            # ---- Captcha Solver (up to 3 attempts) ----
+            # ---- Captcha Solver (up to 4 attempts: Slider & 3D YOLOv5) ----
             solved_or_absent = False
-            for attempt in range(1, 4):
+            for attempt in range(1, 5):
                 frame = None
-                for _ in range(20):
+                for _ in range(15):
                     await page.wait_for_timeout(1000)
                     frame = find_captcha_frame(page)
                     if frame:
@@ -720,15 +731,27 @@ async def generate_video(account: str, prompt: str, ratio: str = None,
                     solved_or_absent = True
                     break
                 print(f"[{account}] Captcha detected, attempt {attempt} solving...", flush=True)
-                if await solve_slider(page, frame, attempt):
+                if await solve_any_captcha(page, frame, attempt):
                     print(f"[{account}] Captcha passed ✓", flush=True)
-                    await page.wait_for_timeout(3000)  # Wait for frontend auto-retry
+                    await page.wait_for_timeout(3500)  # Wait for frontend auto-retry or submission
+                    # If prompt remains in textarea and send button is active, re-click send
+                    try:
+                        box = await page.query_selector("textarea") or await page.query_selector('[contenteditable="true"]')
+                        val = (await box.input_value()) if box and hasattr(box, 'input_value') else ''
+                        if val and val.strip():
+                            send_cand = page.locator("button[aria-label*='Send' i], button[aria-label*='Gửi' i], button[class*='send' i]").first
+                            if await send_cand.count() and await send_cand.is_visible() and not await send_cand.is_disabled():
+                                print(f"[{account}] Re-clicking send button after captcha...", flush=True)
+                                await send_cand.click()
+                    except Exception:
+                        pass
                     solved_or_absent = True
                     break
-                print(f"[{account}] Captcha not passed, retrying...", flush=True)
+                print(f"[{account}] Captcha not passed, waiting for reset before next attempt...", flush=True)
+                await page.wait_for_timeout(2500)
             if not solved_or_absent:
                 await page.screenshot(path="solve_fail.png")
-                raise RiskControlError("Captcha failed 3 times")
+                raise RiskControlError("Captcha failed after multiple attempts")
 
             # ---- Wait for real conversation_id ----
             conv_id = ""

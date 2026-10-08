@@ -20,7 +20,11 @@ def find_gap_x(bg_bytes: bytes, piece_bytes: bytes) -> tuple:
         alpha = cv2.cvtColor(piece, cv2.COLOR_BGR2GRAY)
 
     piece_edge = cv2.Canny(alpha, 100, 200)
-    bg_edge = cv2.Canny(cv2.cvtColor(bg, cv2.COLOR_BGR2GRAY), 100, 200)
+
+    # Gaussian blur removes micro-texture noise from scenery/water in ByteDance captchas
+    bg_gray = cv2.cvtColor(bg, cv2.COLOR_BGR2GRAY)
+    bg_blur = cv2.GaussianBlur(bg_gray, (3, 3), 0)
+    bg_edge = cv2.Canny(bg_blur, 100, 200)
 
     # Template must not exceed background dimensions
     if piece_edge.shape[0] > bg_edge.shape[0] or piece_edge.shape[1] > bg_edge.shape[1]:
@@ -28,7 +32,13 @@ def find_gap_x(bg_bytes: bytes, piece_bytes: bytes) -> tuple:
 
     res = cv2.matchTemplate(bg_edge, piece_edge, cv2.TM_CCOEFF_NORMED)
     _, max_val, _, max_loc = cv2.minMaxLoc(res)
-    return int(max_loc[0]), float(max_val)
+
+    # Compute offset of non-zero pixels inside piece alpha bounding box
+    ys, xs = np.where(alpha > 0)
+    x_offset = int(xs.min()) if len(xs) > 0 else 0
+
+    notch_x = int(max_loc[0]) + x_offset
+    return notch_x, float(max_val)
 
 
 if __name__ == "__main__":

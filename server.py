@@ -611,7 +611,8 @@ async def _run_user_browser(account: str):
 
 async def _serve_browser_stream(ws: WebSocket, name: str, ctx, is_worker: bool = False):
     """Handles CDP screencast and user interaction for either a standalone or an active worker browser."""
-    ACTIVE_USER_BROWSERS[name] = {"context": ctx, "ws": ws, "is_worker": is_worker}
+    cur_task = asyncio.current_task()
+    ACTIVE_USER_BROWSERS[name] = {"context": ctx, "ws": ws, "is_worker": is_worker, "task": cur_task}
 
     cdp = None
     current_page = None
@@ -1050,6 +1051,9 @@ async def ws_browser_stream(ws: WebSocket, name: str, token: str | None = Query(
         from patchright.async_api import async_playwright
         from browser import launch_account_context
 
+        cur_task = asyncio.current_task()
+        ACTIVE_USER_BROWSERS[name] = {"task": cur_task, "is_worker": False}
+
         await ws.send_text(json.dumps({"type": "status", "text": f"Đang khởi động trình duyệt cho '{name}'..."}))
 
         async with async_playwright() as p:
@@ -1057,6 +1061,7 @@ async def ws_browser_stream(ws: WebSocket, name: str, token: str | None = Query(
                 # Chromium persistent context with extension
                 ctx = await launch_account_context(p, name, headless=config.HEADLESS, use_extension=True)
             except Exception as e:
+                ACTIVE_USER_BROWSERS.pop(name, None)
                 await ws.send_text(json.dumps({"type": "error", "message": f"Lỗi khởi động trình duyệt: {e}"}))
                 await ws.close()
                 return
@@ -1142,6 +1147,9 @@ async def admin_account_close_browser(name: str, x_admin_key: str | None = Heade
                     await ws.close()
                 except Exception:
                     pass
+            task = info.get("task")
+            if task and not task.done():
+                task.cancel()
         return {"ok": True, "message": f"Đã đóng live stream (worker của {name} vẫn tiếp tục chạy)"}
     info = ACTIVE_USER_BROWSERS.pop(name, None)
     if info:
@@ -1157,8 +1165,15 @@ async def admin_account_close_browser(name: str, x_admin_key: str | None = Heade
                 await ctx.close()
             except Exception:
                 pass
-        return {"ok": True, "message": f"Đã đóng trình duyệt của {name}"}
-    return {"ok": True, "message": "Trình duyệt chưa mở"}
+        task = info.get("task")
+        if task and not task.done():
+            task.cancel()
+
+    # Reset lock if no worker is actively running
+    if name not in ACTIVE_WORKER_BROWSERS:
+        pool._locks[name] = asyncio.Lock()
+
+    return {"ok": True, "message": f"Đã đóng và giải phóng trình duyệt của {name}"}
 
 
 class ConfigPatch(BaseModel):
@@ -1269,6 +1284,19 @@ async def admin_tasks(request: Request, limit: int = 50, x_admin_key: str | None
         if t.get("video_url"):
             t["video_url"] = resolve_video_url(t["video_url"], request)
     return {"tasks": tasks}
+
+
+@app.get("/api/admin/tasks/{task_id}")
+async def admin_get_task(request: Request, task_id: str, x_admin_key: str | None = Header(default=None)):
+    _admin_auth(x_admin_key)
+    task = store.get(task_id)
+    if not task:
+        raise HTTPException(404, "task not found")
+    task.pop("reference_images", None)
+    if task.get("video_url"):
+        task["video_url"] = resolve_video_url(task["video_url"], request)
+    return {"task": task}
+
 
 
 @app.post("/api/admin/tasks/{task_id}/cancel")

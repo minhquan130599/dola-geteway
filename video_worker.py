@@ -72,12 +72,12 @@ async ({conversationId, msToken, fp}) => {
   let clarifyingText = "";
   let hasFailure = false;
   let failureText = "";
+  let latestBotMsg = null;
+
   for (const msg of messages) {
-    const ext = msg.ext || {};
-    const msgClarifying = ext.is_creation_clarifying === "1" || ext.ai_creation_res_code === "710082041";
-    if (msgClarifying) isClarifying = true;
-    const msgFailed = ext.ai_creation_res_code === "710082023";
-    if (msgFailed) hasFailure = true;
+    if (msg.sender_type === 2) {
+      latestBotMsg = msg;
+    }
     let content = msg.content;
     if (typeof content === "string") {
       try { content = JSON.parse(content); } catch (e) { continue; }
@@ -87,8 +87,6 @@ async ({conversationId, msToken, fp}) => {
       const text = (((block.content || {}).text_block) || {}).text || "";
       if (text) {
         texts.push(text.slice(0, 300));
-        if (msgClarifying && !clarifyingText) clarifyingText = text;
-        if (msgFailed && !failureText) failureText = text;
       }
       if (block.block_type !== 2074) continue;
       const creations = (((block.content || {}).creation_block) || {}).creations || [];
@@ -102,6 +100,27 @@ async ({conversationId, msToken, fp}) => {
       }
     }
   }
+
+  // Only evaluate failure/clarification on the LATEST bot message IF NO VIDEOS YET
+  if (videos.length === 0 && latestBotMsg) {
+    const ext = latestBotMsg.ext || {};
+    isClarifying = ext.is_creation_clarifying === "1" || ext.ai_creation_res_code === "710082041";
+    hasFailure = ext.ai_creation_res_code === "710082023";
+    let content = latestBotMsg.content;
+    if (typeof content === "string") {
+      try { content = JSON.parse(content); } catch (e) {}
+    }
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        const text = (((block.content || {}).text_block) || {}).text || "";
+        if (text) {
+          if (isClarifying && !clarifyingText) clarifyingText = text;
+          if (hasFailure && !failureText) failureText = text;
+        }
+      }
+    }
+  }
+
   return {ok: true, status: resp.status, texts, videos, videoModels, isClarifying, clarifyingText, hasFailure, failureText};
 }
 """

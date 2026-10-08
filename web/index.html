@@ -95,7 +95,40 @@ td .prompt{display:block;max-width:340px;overflow:hidden;text-overflow:ellipsis;
 .gen-status.success{color:var(--accent-d)}
 .create-result{margin-top:18px;padding-top:18px;border-top:1px solid var(--line)}
 .create-result video{display:block;width:100%;max-height:520px;background:#111;border-radius:9px;margin-top:10px}
-@media(max-width:760px){.create-layout{grid-template-columns:1fr}.options-grid{grid-template-columns:1fr 1fr}.create-side{display:none}}
+.table-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+@media(max-width:768px){
+  header{height:auto;padding:10px 14px;flex-wrap:wrap;gap:10px}
+  .brand{font-size:15px}
+  .head-r{flex-wrap:wrap;gap:8px;font-size:12px;width:100%;justify-content:flex-end}
+  .head-r label{font-size:11px}
+  #lastUpdate{display:none}
+  nav{overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch;padding:6px 12px 0;gap:4px;scrollbar-width:none}
+  nav::-webkit-scrollbar{display:none}
+  nav button{padding:8px 12px;font-size:13px;flex-shrink:0}
+  main{padding:12px 8px}
+  .card{padding:14px 10px;border-radius:10px;margin-bottom:12px}
+  .cards{grid-template-columns:repeat(2,1fr);gap:10px}
+  .stat{padding:12px 10px}
+  .stat .v{font-size:22px}
+  .stat .l{font-size:11px}
+  th,td{padding:8px 6px;font-size:12px}
+  td .prompt{max-width:180px}
+  .create-layout{grid-template-columns:1fr}
+  .options-grid{grid-template-columns:1fr 1fr}
+  .create-side{display:none}
+  .dialog .box{padding:16px 14px;border-radius:12px;max-width:95vw}
+  .task-info-grid{grid-template-columns:1fr !important}
+  #streamModal{padding:4px}
+  .stream-box{width:100vw !important;height:100vh !important;border-radius:0 !important}
+  #streamUrlInput{width:140px !important}
+}
+@media(max-width:480px){
+  .cards{grid-template-columns:1fr;gap:8px}
+  .head-r{justify-content:space-between}
+  .options-grid{grid-template-columns:1fr}
+  .chart{gap:6px;height:110px}
+  .chart .bar{width:10px}
+}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 @keyframes spin{to{transform:rotate(360deg)}}
 .stream-box{transition:all .2s ease}
@@ -275,12 +308,110 @@ td .prompt{display:block;max-width:340px;overflow:hidden;text-overflow:ellipsis;
   </section>
 </main>
 
-<div id="dlg" class="dialog" style="display:none"><div class="box" id="dlgBox"></div></div>
-<div id="videoModal" class="dialog" style="display:none">
+<div id="dlg" class="dialog" style="display:none" onclick="if(event.target===this)hide('dlg')"><div class="box" id="dlgBox"></div></div>
+<div id="videoModal" class="dialog" style="display:none" onclick="if(event.target===this)closeVideo()">
   <div class="box" style="width:640px">
     <h2>Video Preview</h2>
     <video id="videoEl" controls autoplay style="width:100%;border-radius:8px"></video>
     <div class="row"><button class="btn" onclick="closeVideo()">Close</button></div>
+  </div>
+</div>
+
+<div id="taskModal" class="dialog" style="display:none;z-index:150" onclick="if(event.target===this)closeTaskModal()">
+  <div class="box task-modal-box" style="width:680px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column;padding:0;overflow:hidden">
+    <!-- Modal Header -->
+    <div style="padding:16px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px;background:#f8fafc">
+      <div style="display:flex;align-items:center;gap:10px;min-width:0">
+        <span style="font-size:20px">🎬</span>
+        <div style="min-width:0">
+          <h2 style="font-size:15px;margin:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span>Chi tiết Task</span>
+            <span id="tmStatusBadge" class="badge b-gray">Queued</span>
+          </h2>
+          <div style="font-size:11px;color:var(--sub);font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" id="tmTaskId">video_...</div>
+        </div>
+      </div>
+      <button class="btn" style="padding:4px 10px;font-size:18px;line-height:1;border:none;background:none;color:#64748b;cursor:pointer" onclick="closeTaskModal()">✕</button>
+    </div>
+
+    <!-- Modal Body (Scrollable) -->
+    <div style="padding:18px 20px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:14px">
+      <!-- Prompt Section with Copy Button -->
+      <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <label style="font-weight:600;font-size:12px;color:#334155;text-transform:uppercase;letter-spacing:0.3px">Prompt Video</label>
+          <button id="tmCopyPromptBtn" class="btn btn-p" style="padding:4px 12px;font-size:12px;display:inline-flex;align-items:center;gap:6px" onclick="copyTaskPrompt()">
+            <span>📋</span> <span id="tmCopyText">Sao chép Prompt</span>
+          </button>
+        </div>
+        <div id="tmPromptText" style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:12px;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;max-height:220px;overflow-y:auto;user-select:text"></div>
+      </div>
+
+      <!-- Error box if failed -->
+      <div id="tmErrorWrap" style="display:none;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:12px;font-size:13px;color:#991b1b">
+        <div style="font-weight:600;display:flex;align-items:center;gap:6px;margin-bottom:4px">
+          <span>⚠️ Lỗi khi tạo video:</span>
+        </div>
+        <div id="tmErrorText" style="line-height:1.5;white-space:pre-wrap;word-break:break-word"></div>
+      </div>
+
+      <!-- Video preview if completed -->
+      <div id="tmVideoWrap" style="display:none;background:#0f172a;border-radius:10px;padding:12px;text-align:center">
+        <video id="tmVideoEl" controls style="max-width:100%;max-height:300px;border-radius:6px;background:#000"></video>
+        <div style="display:flex;justify-content:center;gap:10px;margin-top:10px">
+          <a id="tmVideoLink" href="" target="_blank" class="btn btn-p" style="padding:5px 12px;font-size:12px">Mở video</a>
+          <button class="btn" style="padding:5px 12px;font-size:12px;background:#334155;border-color:#475569;color:#fff" onclick="downloadCurrentTaskVideo()">📥 Tải về</button>
+        </div>
+      </div>
+
+      <!-- Metadata Grid -->
+      <div>
+        <label style="font-weight:600;font-size:12px;color:#334155;text-transform:uppercase;letter-spacing:0.3px;display:block;margin-bottom:8px">Thông tin kỹ thuật</label>
+        <div class="task-info-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;font-size:13px">
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;padding:8px 12px;border-radius:8px">
+            <span style="color:var(--sub);font-size:11px;display:block">Tài khoản (Account)</span>
+            <b id="tmAccount" style="color:#0f172a">—</b>
+          </div>
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;padding:8px 12px;border-radius:8px">
+            <span style="color:var(--sub);font-size:11px;display:block">Mô hình (Model)</span>
+            <b id="tmModel">—</b>
+          </div>
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;padding:8px 12px;border-radius:8px">
+            <span style="color:var(--sub);font-size:11px;display:block">Tỉ lệ (Ratio)</span>
+            <b id="tmRatio">—</b>
+          </div>
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;padding:8px 12px;border-radius:8px">
+            <span style="color:var(--sub);font-size:11px;display:block">Thời lượng (Duration)</span>
+            <b id="tmDuration">—</b>
+          </div>
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;padding:8px 12px;border-radius:8px">
+            <span style="color:var(--sub);font-size:11px;display:block">Client API Key</span>
+            <b id="tmClient">—</b>
+          </div>
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;padding:8px 12px;border-radius:8px">
+            <span style="color:var(--sub);font-size:11px;display:block">Thời gian tạo (Created)</span>
+            <span id="tmCreatedAt" style="color:#334155">—</span>
+          </div>
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;padding:8px 12px;border-radius:8px">
+            <span style="color:var(--sub);font-size:11px;display:block">Bắt đầu tạo (Started)</span>
+            <span id="tmStartedAt" style="color:#334155">—</span>
+          </div>
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;padding:8px 12px;border-radius:8px">
+            <span style="color:var(--sub);font-size:11px;display:block">Hoàn thành (Finished)</span>
+            <span id="tmFinishedAt" style="color:#334155">—</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Footer -->
+    <div style="padding:12px 20px;border-top:1px solid var(--line);background:#f8fafc;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <div id="tmLiveBrowserBtnWrap"></div>
+      <div style="display:flex;gap:8px">
+        <button id="tmCancelTaskBtn" class="btn btn-danger" style="display:none;padding:6px 14px" onclick="cancelCurrentModalTask()">Hủy Task</button>
+        <button class="btn" style="padding:6px 16px" onclick="closeTaskModal()">Đóng</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -354,7 +485,7 @@ function q(s){return document.querySelector(s);}
 function show(id){
   const el = document.getElementById(id);
   if(!el) return;
-  if(id === 'loginScreen' || id === 'dlg' || id === 'streamModal' || id === 'videoModal') {
+  if(id === 'loginScreen' || id === 'dlg' || id === 'streamModal' || id === 'videoModal' || id === 'taskModal') {
     el.style.display = 'flex';
   } else {
     el.style.display = 'block';
@@ -637,8 +768,8 @@ function statusBadge(a){
 }
 
 function table(heads,rows){
-  return `<table><thead><tr>${heads.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
-    <tbody>${rows.length?rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${heads.length}" class="empty">No data</td></tr>`}</tbody></table>`;
+  return `<div class="table-wrap"><table><thead><tr>${heads.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
+    <tbody>${rows.length?rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${heads.length}" class="empty">No data</td></tr>`}</tbody></table></div>`;
 }
 
 async function setSched(name,on){
@@ -665,7 +796,7 @@ async function loadAccounts(){
     } else if (x.browser_open) {
       browserBtn = `<button class="btn btn-p" style="margin-right:6px;background:#0284c7;border-color:#0284c7" onclick="openLiveBrowser('${x.name}')" title="Xem phiên stream đang mở">📺 Xem Stream</button><button class="btn btn-danger" style="margin-right:6px" onclick="closeBrowser('${x.name}',this)">Đóng</button>`;
     } else if (x.busy) {
-      browserBtn = `<button class="btn btn-p" style="margin-right:6px;background:#d97706;border-color:#d97706" onclick="openLiveBrowser('${x.name}')" title="Tài khoản đang bận - bấm để kết nối xem live">📺 Xem Browser (Đang bận)</button>`;
+      browserBtn = `<button class="btn btn-p" style="margin-right:6px;background:#d97706;border-color:#d97706" onclick="openLiveBrowser('${x.name}')" title="Tài khoản đang bận - bấm để kết nối xem live">📺 Xem Browser (Đang bận)</button><button class="btn btn-danger" style="margin-right:6px" onclick="closeBrowser('${x.name}',this)" title="Giải phóng luồng nếu bị kẹt">Giải phóng</button>`;
     } else {
       browserBtn = `<button class="btn" style="margin-right:6px;background:#f0fdf4;border-color:#86efac;color:#166534" onclick="openLiveBrowser('${x.name}')" title="Mở live stream tương tác từ xa trực tiếp trên Web">🌐 Mở Browser (Live Stream)</button>`;
     }
@@ -1157,36 +1288,211 @@ async function submitAddFacebookAccount(){
 }
 
 /* ---- Task Queue ---- */
-async function loadTasks(){
-  const r=await api('/api/admin/tasks?limit=50');
-  const sb={'queued':'<span class="badge b-gray">Queued</span>','processing':'<span class="badge b-blue">Processing</span>','completed':'<span class="badge b-green">Completed</span>','failed':'<span class="badge b-red">Failed</span>'};
-  const rows=r.tasks.map(t=>{
-    let action = '—';
-    if(t.status==='processing'||t.status==='queued'){
-      let viewBtn = '';
-      if(t.status==='processing' && t.account){
-        viewBtn = `<button class="btn btn-p" style="padding:2px 8px;font-size:12px;margin-right:6px;background:#d97706;border-color:#d97706" onclick="openLiveBrowser('${esc(t.account)}')" title="Xem trực tiếp trình duyệt đang chạy task này">📺 Xem</button>`;
-      }
-      action = viewBtn + '<button class="btn" style="color:#ef4444;border-color:#ef4444;padding:2px 8px;font-size:12px;cursor:pointer" onclick="cancelTask(&quot;'+esc(t.id)+'&quot;)">Cancel</button>';
+let currentModalTaskId = null;
+let CACHED_TASKS_MAP = {};
+
+function copyTextToClipboard(text) {
+  if (!text) return Promise.reject(new Error('No text'));
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
+  }
+  return new Promise((resolve, reject) => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-999999px';
+      ta.style.top = '-999999px';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      if (ok) resolve(); else reject(new Error('Copy failed'));
+    } catch(e) {
+      reject(e);
     }
+  });
+}
+
+async function copyTaskPrompt(){
+  const t = CACHED_TASKS_MAP[currentModalTaskId];
+  const promptText = (t && t.prompt) ? t.prompt : (q('#tmPromptText')?.textContent || '');
+  if (!promptText || promptText === '(Không có prompt)') {
+    alert('Không có nội dung prompt để sao chép.');
+    return;
+  }
+  const btn = q('#tmCopyPromptBtn');
+  const txt = q('#tmCopyText');
+  try {
+    await copyTextToClipboard(promptText);
+    if (txt) txt.textContent = '✓ Đã sao chép!';
+    if (btn) btn.style.background = '#059669';
+    setTimeout(() => {
+      if (txt) txt.textContent = 'Sao chép Prompt';
+      if (btn) btn.style.background = '';
+    }, 2000);
+  } catch(e) {
+    window.prompt('Sao chép prompt bên dưới (Ctrl+C hoặc nhấn giữ để chép):', promptText);
+  }
+}
+
+async function openTaskDetail(taskId){
+  currentModalTaskId = taskId;
+  let t = CACHED_TASKS_MAP[taskId];
+  if (!t) {
+    try {
+      const res = await api('/api/admin/tasks/' + encodeURIComponent(taskId));
+      if (res && res.task) {
+        t = res.task;
+        CACHED_TASKS_MAP[taskId] = t;
+      }
+    } catch(e) {
+      console.warn('Could not fetch task detail:', e);
+    }
+  }
+
+  q('#tmTaskId').textContent = taskId;
+  const sb = {
+    'queued': '<span id="tmStatusBadge" class="badge b-gray">Queued</span>',
+    'processing': '<span id="tmStatusBadge" class="badge b-blue">Processing</span>',
+    'completed': '<span id="tmStatusBadge" class="badge b-green">Completed</span>',
+    'failed': '<span id="tmStatusBadge" class="badge b-red">Failed</span>'
+  };
+  const badgeWrap = document.querySelector('#taskModal h2');
+  if (badgeWrap) {
+    const existingBadge = badgeWrap.querySelector('.badge');
+    if (existingBadge) {
+      existingBadge.outerHTML = sb[t?.status] || `<span id="tmStatusBadge" class="badge b-gray">${esc(t?.status || 'Unknown')}</span>`;
+    }
+  }
+
+  q('#tmPromptText').textContent = t?.prompt || '(Không có prompt)';
+  q('#tmAccount').textContent = t?.account || '—';
+  q('#tmModel').textContent = t?.model || '—';
+  q('#tmRatio').textContent = t?.aspect_ratio || '16:9';
+  q('#tmDuration').textContent = (t?.duration || 10) + 's';
+  q('#tmClient').textContent = t?.api_key_name || (t?.api_key ? ('Key: ' + t.api_key.slice(0, 10) + '…') : '—');
+  q('#tmCreatedAt').textContent = fmt(t?.created_at);
+  q('#tmStartedAt').textContent = fmt(t?.started_at);
+  q('#tmFinishedAt').textContent = fmt(t?.finished_at);
+
+  if (t?.status === 'failed' && t?.error) {
+    q('#tmErrorText').textContent = t.error;
+    q('#tmErrorWrap').style.display = 'block';
+  } else {
+    q('#tmErrorWrap').style.display = 'none';
+  }
+
+  const vWrap = q('#tmVideoWrap');
+  const vEl = q('#tmVideoEl');
+  const vLink = q('#tmVideoLink');
+  if (t?.video_url) {
+    const resolvedUrl = resolveVideoUrl(t.video_url);
+    vEl.src = resolvedUrl;
+    vLink.href = resolvedUrl;
+    vWrap.style.display = 'block';
+  } else {
+    vEl.pause();
+    vEl.src = '';
+    vWrap.style.display = 'none';
+  }
+
+  const liveWrap = q('#tmLiveBrowserBtnWrap');
+  if (t?.status === 'processing' && t?.account) {
+    liveWrap.innerHTML = `<button class="btn" style="background:#d97706;border-color:#d97706;color:#fff;padding:6px 14px;font-size:12px;font-weight:600" onclick="closeTaskModal();openLiveBrowser('${esc(t.account)}')">📺 Live Browser (${esc(t.account)})</button>`;
+  } else {
+    liveWrap.innerHTML = '';
+  }
+
+  const cancelBtn = q('#tmCancelTaskBtn');
+  if (t?.status === 'processing' || t?.status === 'queued') {
+    cancelBtn.style.display = 'inline-block';
+  } else {
+    cancelBtn.style.display = 'none';
+  }
+
+  show('taskModal');
+}
+
+function closeTaskModal(){
+  const vEl = q('#tmVideoEl');
+  if (vEl) {
+    vEl.pause();
+    vEl.src = '';
+  }
+  hide('taskModal');
+}
+
+async function cancelCurrentModalTask(){
+  if (!currentModalTaskId) return;
+  if (!confirm('Hủy task ' + currentModalTaskId + '?')) return;
+  try {
+    await api('/api/admin/tasks/' + encodeURIComponent(currentModalTaskId) + '/cancel', {method:'POST'});
+    closeTaskModal();
+    refresh();
+  } catch(e) {
+    alert(e.message);
+  }
+}
+
+function downloadCurrentTaskVideo(){
+  const t = CACHED_TASKS_MAP[currentModalTaskId];
+  if (!t || !t.video_url) return alert('Không có video để tải về');
+  const url = resolveVideoUrl(t.video_url);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = (currentModalTaskId || 'video') + '.mp4';
+  a.target = '_blank';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+async function loadTasks(){
+  const r = await api('/api/admin/tasks?limit=50');
+  const sb = {
+    'queued': '<span class="badge b-gray">Queued</span>',
+    'processing': '<span class="badge b-blue">Processing</span>',
+    'completed': '<span class="badge b-green">Completed</span>',
+    'failed': '<span class="badge b-red">Failed</span>'
+  };
+
+  CACHED_TASKS_MAP = {};
+  for (const t of (r.tasks || [])) {
+    CACHED_TASKS_MAP[t.id] = t;
+  }
+
+  const rows = (r.tasks || []).map(t => {
+    let action = `<button class="btn btn-p" style="padding:3px 9px;font-size:12px;margin-right:5px;display:inline-flex;align-items:center;gap:3px" onclick="openTaskDetail('${esc(t.id)}')"><span>👁️</span><span>Chi tiết</span></button>`;
+    if (t.status === 'processing' && t.account) {
+      action += `<button class="btn" style="padding:3px 8px;font-size:12px;margin-right:5px;background:#d97706;border-color:#d97706;color:#fff" onclick="openLiveBrowser('${esc(t.account)}')" title="Xem trực tiếp trình duyệt đang chạy task này">📺 Xem</button>`;
+    }
+    if (t.status === 'processing' || t.status === 'queued') {
+      action += `<button class="btn" style="color:#ef4444;border-color:#ef4444;padding:3px 8px;font-size:12px;cursor:pointer" onclick="cancelTask('${esc(t.id)}')">Cancel</button>`;
+    }
+
     return [
-      '<span class="tiny" title="'+esc(t.id)+'">'+t.id.replace('video_','').slice(0,10)+'</span>',
-      '<span class="prompt" title="'+esc(t.prompt||'')+'">'+esc(t.prompt||'')+'</span>',
-      t.account||'-',
-      t.api_key_name||'—',
-      (t.duration||10)+'s',
-      sb[t.status]||'<span class="badge b-gray">'+esc(t.status)+'</span>',
+      `<span class="tiny" style="cursor:pointer;color:var(--accent);font-weight:600;text-decoration:underline" title="Bấm để xem chi tiết task" onclick="openTaskDetail('${esc(t.id)}')">${t.id.replace('video_', '').slice(0, 10)}</span>`,
+      `<span class="prompt" style="cursor:pointer" title="Bấm để xem chi tiết & copy prompt: ${esc(t.prompt || '')}" onclick="openTaskDetail('${esc(t.id)}')">${esc(t.prompt || '')}</span>`,
+      t.account || '-',
+      t.api_key_name || '—',
+      (t.duration || 10) + 's',
+      sb[t.status] || `<span class="badge b-gray">${esc(t.status)}</span>`,
       fmt(t.created_at),
       t.video_url
-        ?(()=>{
+        ? (() => {
             const vUrl = resolveVideoUrl(t.video_url);
-            return '<div class="video-wrap"><a href="'+esc(vUrl)+'" target="_blank">Open</a><button class="btn" onclick="playVideo(&quot;'+esc(vUrl)+'&quot;)">Preview</button></div>';
+            return `<div class="video-wrap"><a href="${esc(vUrl)}" target="_blank">Open</a><button class="btn" onclick="playVideo('${esc(vUrl)}')">Preview</button></div>`;
           })()
-        :(t.status==='failed'?'<span class="tiny" style="color:#ef4444;cursor:pointer" title="'+esc(t.error||'')+'" onclick="alert(this.title)">'+esc((t.error||'').slice(0,35))+(t.error && t.error.length > 35 ? '…' : '')+'</span>':'—'),
+        : (t.status === 'failed'
+            ? `<span class="tiny" style="color:#ef4444;cursor:pointer" title="${esc(t.error || '')}" onclick="openTaskDetail('${esc(t.id)}')">${esc((t.error || '').slice(0, 32)) + (t.error && t.error.length > 32 ? '…' : '')}</span>`
+            : '—'),
       action
     ];
   });
-  q('#tasksTable').innerHTML=table(['Task ID','Prompt','Account','Client','Duration','Status','Created At','Video','Action'],rows);
+
+  q('#tasksTable').innerHTML = table(['Task ID', 'Prompt', 'Account', 'Client', 'Duration', 'Status', 'Created At', 'Video', 'Action'], rows);
 }
 
 async function cancelTask(id){
