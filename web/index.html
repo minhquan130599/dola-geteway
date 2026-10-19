@@ -792,7 +792,9 @@ async function loadAccounts(){
     const rem = pts + `<div class="tiny" style="color:#64748b">${x.used_today || 0} video hôm nay</div>`;
     let browserBtn = '';
     if (x.worker_running) {
-      browserBtn = `<button class="btn btn-p" style="margin-right:6px;background:#d97706;border-color:#d97706" onclick="openLiveBrowser('${x.name}')" title="Liên kết và theo dõi trực tiếp trình duyệt đang chạy tạo video">📺 Xem Browser (Đang chạy)</button>`;
+      browserBtn = `<button class="btn btn-p" style="margin-right:6px;background:#d97706;border-color:#d97706" onclick="openLiveBrowser('${x.name}')" title="Liên kết và theo dõi trực tiếp trình duyệt đang chạy tạo video">📺 Xem Browser (Worker)</button>`;
+    } else if (x.relogin_running) {
+      browserBtn = `<button class="btn btn-p" style="margin-right:6px;background:#2563eb;border-color:#2563eb" onclick="openLiveBrowser('${x.name}')" title="Trình duyệt đang tự động đăng nhập - bấm để xem live stream">📺 Xem Login (Live)</button><button class="btn btn-danger" style="margin-right:6px" onclick="closeBrowser('${x.name}',this)" title="Hủy phiên đăng nhập">Dừng</button>`;
     } else if (x.browser_open) {
       browserBtn = `<button class="btn btn-p" style="margin-right:6px;background:#0284c7;border-color:#0284c7" onclick="openLiveBrowser('${x.name}')" title="Xem phiên stream đang mở">📺 Xem Stream</button><button class="btn btn-danger" style="margin-right:6px" onclick="closeBrowser('${x.name}',this)">Đóng</button>`;
     } else if (x.busy) {
@@ -1110,6 +1112,10 @@ function handleStreamMessage(msg){
       q('#streamAccountBadge').innerHTML = `${esc(msg.account)} <span style="background:#d97706;padding:2px 6px;border-radius:4px;font-size:11px">ĐANG TẠO VIDEO</span>`;
       const btn = q('#streamCloseBtn');
       if (btn) btn.textContent = '✕ Đóng xem Live (Worker vẫn chạy)';
+    } else if (msg.is_relogin) {
+      q('#streamAccountBadge').innerHTML = `${esc(msg.account)} <span style="background:#2563eb;padding:2px 6px;border-radius:4px;font-size:11px">ĐANG ĐĂNG NHẬP</span>`;
+      const btn = q('#streamCloseBtn');
+      if (btn) btn.textContent = '✕ Đóng xem Live (Login vẫn tiếp tục)';
     } else {
       q('#streamAccountBadge').textContent = msg.account;
       const btn = q('#streamCloseBtn');
@@ -1243,11 +1249,11 @@ async function verify(name,btn){
 
 async function reloginAccount(name, hasCredentials, email, proxy){
   if (hasCredentials) {
-    if (!confirm(`Bạn có muốn tự động đăng nhập lại cho tài khoản [${name}] bằng mật khẩu đã lưu không?`)) return;
+    if (!confirm(`Bạn có muốn tự động đăng nhập lại cho tài khoản [${name}] bằng mật khẩu đã lưu không?\n\n(Hệ thống sẽ tự động mở Live Stream để bạn theo dõi trực tiếp)`)) return;
     try {
       await api('/api/admin/accounts/' + encodeURIComponent(name) + '/relogin', {method: 'POST'});
-      alert(`Đã gửi yêu cầu đăng nhập lại cho ${name}! Quá trình đăng nhập và lưu cookies đang chạy nền. Vui lòng kiểm tra lại sau 15-30 giây.`);
       refresh();
+      openLiveBrowser(name);
     } catch(e) {
       alert('Lỗi đăng nhập lại: ' + e.message);
     }
@@ -1266,7 +1272,7 @@ async function reloginAccount(name, hasCredentials, email, proxy){
       <input id="f_relogin_proxy" value="${esc(proxy || '')}" placeholder="host:port hoặc host:port:user:pass" style="font-family:monospace;margin-bottom:12px">
       <div class="row" style="margin-top:14px;display:flex;justify-content:flex-end;gap:8px">
         <button class="btn" onclick="hide('dlg')">Hủy</button>
-        <button class="btn btn-p" style="background:#1877F2;border-color:#1877F2" onclick="submitReloginWithCreds('${esc(name)}')">Bắt đầu Đăng nhập & Lưu</button>
+        <button class="btn btn-p" style="background:#1877F2;border-color:#1877F2" onclick="submitReloginWithCreds('${esc(name)}')">Bắt đầu Đăng nhập & Xem Live</button>
       </div>`);
   }
 }
@@ -1282,8 +1288,8 @@ async function submitReloginWithCreds(name){
       method: 'POST',
       body: { password, secret, proxy }
     });
-    alert(`Đã gửi yêu cầu đăng nhập lại cho ${name}! Quá trình đăng nhập và lưu cookies đang chạy nền. Vui lòng kiểm tra lại sau 15-30 giây.`);
     refresh();
+    openLiveBrowser(name);
   } catch(e) {
     alert('Lỗi: ' + e.message);
   }

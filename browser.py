@@ -126,8 +126,30 @@ async def apply_account_cookies(context, account: str) -> bool:
 
 
 
+def cleanup_profile_locks(profile_dir: Path | str):
+    """Removes stale Chromium singleton lock files left over from killed processes."""
+    p = Path(profile_dir)
+    for fname in ["SingletonLock", "SingletonSocket", "SingletonCookie", "parent.lock"]:
+        f = p / fname
+        if f.exists():
+            try:
+                f.unlink(missing_ok=True)
+            except Exception:
+                pass
+    def_p = p / "Default"
+    if def_p.exists():
+        for fname in ["SingletonLock", "SingletonSocket", "SingletonCookie", "parent.lock"]:
+            f = def_p / fname
+            if f.exists():
+                try:
+                    f.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+
 def configure_clean_profile(profile_dir: Path):
     """Configures Chrome profile Preferences to disable password prompts, translate, etc."""
+    cleanup_profile_locks(profile_dir)
     default_dir = Path(profile_dir) / "Default"
     default_dir.mkdir(parents=True, exist_ok=True)
     prefs_file = default_dir / "Preferences"

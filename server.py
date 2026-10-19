@@ -578,6 +578,7 @@ async def admin_me(x_admin_key: str | None = Header(default=None)):
 
 
 ACTIVE_USER_BROWSERS: dict[str, dict] = {}
+ACTIVE_RELOGIN_BROWSERS: dict[str, dict] = {}
 
 
 async def _run_user_browser(account: str):
@@ -615,10 +616,10 @@ async def _run_user_browser(account: str):
                     pass
 
 
-async def _serve_browser_stream(ws: WebSocket, name: str, ctx, is_worker: bool = False):
-    """Handles CDP screencast and user interaction for either a standalone or an active worker browser."""
+async def _serve_browser_stream(ws: WebSocket, name: str, ctx, is_worker: bool = False, is_relogin: bool = False):
+    """Handles CDP screencast and user interaction for standalone, worker, or relogin browser."""
     cur_task = asyncio.current_task()
-    ACTIVE_USER_BROWSERS[name] = {"context": ctx, "ws": ws, "is_worker": is_worker, "task": cur_task}
+    ACTIVE_USER_BROWSERS[name] = {"context": ctx, "ws": ws, "is_worker": is_worker, "is_relogin": is_relogin, "task": cur_task}
 
     cdp = None
     current_page = None
@@ -634,7 +635,7 @@ async def _serve_browser_stream(ws: WebSocket, name: str, ctx, is_worker: bool =
         if not current_page:
             current_page = await ctx.new_page()
 
-        if not is_worker:
+        if not is_worker and not is_relogin:
             try:
                 await current_page.set_viewport_size({"width": 1280, "height": 950})
             except Exception:
@@ -655,7 +656,7 @@ async def _serve_browser_stream(ws: WebSocket, name: str, ctx, is_worker: bool =
         except Exception:
             pass
 
-        if not is_worker:
+        if not is_worker and not is_relogin:
             if not current_page.url or current_page.url == "about:blank":
                 try:
                     await current_page.goto("https://www.dola.com/chat", wait_until="domcontentloaded", timeout=45000)
@@ -834,7 +835,8 @@ async def _serve_browser_stream(ws: WebSocket, name: str, ctx, is_worker: bool =
             "viewport": vp,
             "url": current_page.url,
             "title": await current_page.title() if not current_page.is_closed() else "Dola",
-            "is_worker": is_worker
+            "is_worker": is_worker,
+            "is_relogin": is_relogin
         }))
         await send_tabs_update()
 
@@ -997,17 +999,13 @@ async def _serve_browser_stream(ws: WebSocket, name: str, ctx, is_worker: bool =
                 await cdp.send("Page.stopScreencast")
         except Exception:
             pass
-        if not is_worker:
+        if not is_worker and not is_relogin:
             try:
                 await ctx.close()
             except Exception:
                 pass
-            try:
-                await pool.verify_account(name)
-            except Exception:
-                pass
         else:
-            print(f"[ws_browser] Live stream detached from active worker {name}", flush=True)
+            print(f"[ws_browser] Live stream detached from active session {name}", flush=True)
 
 
 @app.websocket("/ws/browser/{name}")
@@ -1035,7 +1033,7 @@ async def ws_browser_stream(ws: WebSocket, name: str, token: str | None = Query(
         await ws.close(code=1008)
         return
 
-    # Check if account is actively running in a generation worker
+    # 1. Check if account is actively running in a generation worker
     worker_browser = ACTIVE_WORKER_BROWSERS.get(name)
     is_worker = bool(worker_browser and worker_browser.get("context") and not worker_browser["context"].is_closed())
     if is_worker:
@@ -1044,7 +1042,38 @@ async def ws_browser_stream(ws: WebSocket, name: str, token: str | None = Query(
         await _serve_browser_stream(ws, name, ctx, is_worker=True)
         return
 
+    # 2. Check if account is actively running in a relogin flow
+    relogin_browser = ACTIVE_RELOGIN_BROWSERS.get(name)
+    is_relogin = bool(relogin_browser and relogin_browser.get("context") and not relogin_browser["context"].is_closed())
+    if is_relogin:
+        ctx = relogin_browser["context"]
+        await ws.send_text(json.dumps({"type": "status", "text": f"Đang liên kết vào trình duyệt đang đăng nhập của '{name}'..."}))
+        await _serve_browser_stream(ws, name, ctx, is_relogin=True)
+        return
+
     lock = pool._locks.setdefault(name, asyncio.Lock())
+    if lock.locked():
+        # Account is locked (relogin or worker might be starting now) - wait up to 10 seconds
+        for _ in range(20):
+            await ws.send_text(json.dumps({"type": "status", "text": f"Đang chờ trình duyệt của '{name}' sẵn sàng..."}))
+            await asyncio.sleep(0.5)
+            # Recheck relogin
+            rb = ACTIVE_RELOGIN_BROWSERS.get(name)
+            if rb and rb.get("context") and not rb["context"].is_closed():
+                ctx = rb["context"]
+                await ws.send_text(json.dumps({"type": "status", "text": f"Đã kết nối vào trình duyệt đăng nhập của '{name}'!"}))
+                await _serve_browser_stream(ws, name, ctx, is_relogin=True)
+                return
+            # Recheck worker
+            wb = ACTIVE_WORKER_BROWSERS.get(name)
+            if wb and wb.get("context") and not wb["context"].is_closed():
+                ctx = wb["context"]
+                await ws.send_text(json.dumps({"type": "status", "text": f"Đã kết nối vào trình duyệt tạo video của '{name}'!"}))
+                await _serve_browser_stream(ws, name, ctx, is_worker=True)
+                return
+            if not lock.locked():
+                break
+
     if lock.locked():
         await ws.send_text(json.dumps({
             "type": "error",
@@ -1074,6 +1103,11 @@ async def ws_browser_stream(ws: WebSocket, name: str, token: str | None = Query(
 
             await _serve_browser_stream(ws, name, ctx, is_worker=False)
 
+    try:
+        asyncio.create_task(pool.verify_account(name))
+    except Exception:
+        pass
+
 
 @app.get("/api/admin/accounts")
 async def admin_accounts(x_admin_key: str | None = Header(default=None)):
@@ -1081,8 +1115,13 @@ async def admin_accounts(x_admin_key: str | None = Header(default=None)):
     accs = pool.list_accounts()
     for a in accs:
         is_worker = bool(a["name"] in ACTIVE_WORKER_BROWSERS)
-        a["browser_open"] = bool(a["name"] in ACTIVE_USER_BROWSERS or is_worker)
+        is_relogin = bool(a["name"] in ACTIVE_RELOGIN_BROWSERS)
+        is_user = bool(a["name"] in ACTIVE_USER_BROWSERS)
+        a["browser_open"] = bool(is_user or is_worker or is_relogin)
         a["worker_running"] = is_worker
+        a["relogin_running"] = is_relogin
+        lock = pool._locks.get(a["name"])
+        a["busy"] = bool(lock and lock.locked())
     return {"accounts": accs}
 
 
@@ -1157,6 +1196,28 @@ async def admin_account_close_browser(name: str, x_admin_key: str | None = Heade
             if task and not task.done():
                 task.cancel()
         return {"ok": True, "message": f"Đã đóng live stream (worker của {name} vẫn tiếp tục chạy)"}
+
+    if name in ACTIVE_RELOGIN_BROWSERS:
+        info = ACTIVE_USER_BROWSERS.pop(name, None)
+        if info:
+            ws = info.get("ws")
+            if ws:
+                try:
+                    await ws.close()
+                except Exception:
+                    pass
+            task = info.get("task")
+            if task and not task.done():
+                task.cancel()
+        relogin_info = ACTIVE_RELOGIN_BROWSERS.pop(name, None)
+        if relogin_info and relogin_info.get("context"):
+            try:
+                await relogin_info["context"].close()
+            except Exception:
+                pass
+        pool._locks[name] = asyncio.Lock()
+        return {"ok": True, "message": f"Đã dừng phiên đăng nhập của {name}"}
+
     info = ACTIVE_USER_BROWSERS.pop(name, None)
     if info:
         ws = info.get("ws")
@@ -1176,7 +1237,7 @@ async def admin_account_close_browser(name: str, x_admin_key: str | None = Heade
             task.cancel()
 
     # Reset lock if no worker is actively running
-    if name not in ACTIVE_WORKER_BROWSERS:
+    if name not in ACTIVE_WORKER_BROWSERS and name not in ACTIVE_RELOGIN_BROWSERS:
         pool._locks[name] = asyncio.Lock()
 
     return {"ok": True, "message": f"Đã đóng và giải phóng trình duyệt của {name}"}
@@ -1287,16 +1348,22 @@ async def _run_relogin_job(job_id: str, account: str, email: str, password: str,
 
     async with lock:
         try:
+            async def on_browser_ready(ctx, pg):
+                ACTIVE_RELOGIN_BROWSERS[account] = {"context": ctx, "page": pg, "started_at": time.time()}
+
             if account_type == "google":
+                import add_account
+                import importlib
+                importlib.reload(add_account)
                 from add_account import add_account_flow
-                await add_account_flow(account, email, password, secret, proxy=proxy or "")
+                await add_account_flow(account, email, password, secret, proxy=proxy or "", on_browser_launched=on_browser_ready)
                 res = {"ok": True}
             else:
                 import importlib
                 import add_account_fb
                 importlib.reload(add_account_fb)
                 from add_account_fb import add_fb_account_flow
-                res = await add_fb_account_flow(account, email, password, secret, proxy=proxy or "")
+                res = await add_fb_account_flow(account, email, password, secret, proxy=proxy or "", on_browser_launched=on_browser_ready)
 
             if res.get("ok"):
                 pool._ensure_meta(account)
@@ -1312,6 +1379,8 @@ async def _run_relogin_job(job_id: str, account: str, email: str, password: str,
         except Exception as e:
             pool.set_login_status(account, False)
             JOBS[job_id] = {**JOBS[job_id], "status": "failed", "error": f"{account}: {str(e)}"}
+        finally:
+            ACTIVE_RELOGIN_BROWSERS.pop(account, None)
 
 
 @app.post("/api/admin/accounts/{name}/relogin", status_code=202)

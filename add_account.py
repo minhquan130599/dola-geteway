@@ -104,7 +104,7 @@ async def google_login(g, email: str, password: str, secret: str):
         raise RuntimeError("Google login did not complete within 12 steps (saved dbg_google2.png)")
 
 
-async def add_account_flow(account: str, email: str, password: str, secret: str, proxy: str = "") -> bool:
+async def add_account_flow(account: str, email: str, password: str, secret: str, proxy: str = "", on_browser_launched=None) -> bool:
     """Full account addition flow; returns True on success."""
     profile_dir = Path("accounts") / account
     profile_dir.mkdir(parents=True, exist_ok=True)
@@ -123,6 +123,11 @@ async def add_account_flow(account: str, email: str, password: str, secret: str,
         try:
             await apply_account_cookies(context, account)
             page = context.pages[0] if context.pages else await context.new_page()
+            if on_browser_launched:
+                try:
+                    await on_browser_launched(context, page)
+                except Exception:
+                    pass
             await page.goto("https://www.dola.com/chat", timeout=60000)
             await page.wait_for_timeout(4000)
 

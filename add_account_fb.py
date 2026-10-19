@@ -588,7 +588,8 @@ async def add_fb_account_flow(
     password: str,
     secret: str = "",
     cookies_file: str = "cookies.txt",
-    proxy: str = ""
+    proxy: str = "",
+    on_browser_launched = None
 ) -> dict:
     """Full automated login flow via Facebook OAuth.
 
@@ -625,6 +626,11 @@ async def add_fb_account_flow(
         context = await p.chromium.launch_persistent_context(str(profile_dir), **kwargs)
         try:
             page = context.pages[0] if context.pages else await context.new_page()
+            if on_browser_launched:
+                try:
+                    await on_browser_launched(context, page)
+                except Exception:
+                    pass
 
             # Set Vietnamese cookies on dola.com domain in advance
             await context.add_cookies([
@@ -646,12 +652,16 @@ async def add_fb_account_flow(
                 append_to_cookies_file(account, header, cookies_file)
                 return {"ok": True, "account": account, "cookies": cookie_map, "cookie_header": header}
 
-            # Dismiss cookie banner
+            # Dismiss cookie banner or overlay if present
             try:
-                ok_btn = page.locator("button:has-text('OK'), div:has-text('OK')").first
-                if await ok_btn.count() and await ok_btn.is_visible():
-                    await ok_btn.click()
-                    await page.wait_for_timeout(500)
+                for banner_sel in [
+                    "button:has-text('OK')", "div:has-text('OK')",
+                    "[data-slot='dialog-overlay']", ".bg-dbx-bg-mask"
+                ]:
+                    b_el = page.locator(banner_sel).first
+                    if await b_el.count() and await b_el.is_visible():
+                        await b_el.click(force=True, timeout=1000)
+                        await page.wait_for_timeout(300)
             except Exception:
                 pass
 
@@ -659,11 +669,14 @@ async def add_fb_account_flow(
             modal = page.locator(".semi-modal-wrap, [role='dialog']").first
             if not await modal.count() or not await modal.is_visible():
                 login_btn = page.locator(
-                    "button:has-text('Đăng nhập'), button:has-text('Log in'), button:has-text('ログイン')"
+                    "button:has-text('Đăng nhập'), button:has-text('Log in'), button:has-text('ログイン'), [data-testid='to_login_button']"
                 ).first
                 if await login_btn.count() and await login_btn.is_visible():
                     print(f"[{account}] Clicking header 'Đăng nhập' button...", flush=True)
-                    await login_btn.click()
+                    try:
+                        await login_btn.click(force=True, timeout=5000)
+                    except Exception:
+                        await login_btn.evaluate("el => el.click()")
                     await page.wait_for_timeout(2000)
 
             # Find Facebook button in modal
