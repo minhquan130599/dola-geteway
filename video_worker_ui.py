@@ -580,6 +580,26 @@ async def generate_video(account: str, prompt: str, ratio: str = None,
             await page.wait_for_timeout(5000)
             cookies = await context.cookies("https://www.dola.com")
             ms_token, fp = cookie_value(cookies, "msToken"), cookie_value(cookies, "s_v_web_id")
+
+            # Check if account is logged out (login modal or login button appears)
+            is_logged_out = await page.evaluate(
+                """() => {
+                    const buttons = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+                    const hasLoginBtn = buttons.some(el => {
+                        const t = (el.innerText || '').trim().toLowerCase();
+                        return ['đăng nhập', 'sign in', 'log in', 'ログイン', '登录'].includes(t);
+                    });
+                    if (hasLoginBtn) return true;
+                    const modals = Array.from(document.querySelectorAll('.semi-modal, [role="dialog"], .semi-modal-wrap'));
+                    return modals.some(el => {
+                        const t = (el.innerText || '').toLowerCase();
+                        return t.includes('đăng nhập để mở khóa') || t.includes('tiếp tục bằng google') || t.includes('sign in to unlock');
+                    });
+                }"""
+            )
+            if is_logged_out:
+                raise CreditError(f"Tài khoản '{account}' đã bị đăng xuất trên Dola (xuất hiện popup Đăng nhập). Vui lòng đăng nhập lại.")
+
             req_points = config.estimate_required_credits(model_key, ratio, duration)
             print(f"[{account}] Mode requirement: {req_points} credit point(s) (model={model_key}, ratio={ratio}, duration={duration}s)", flush=True)
             preflight = await _preflight_balance(page, ms_token, fp, req_points)

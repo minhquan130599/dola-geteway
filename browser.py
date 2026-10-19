@@ -1,6 +1,7 @@
+from __future__ import annotations
 import json
-"""Patchright persistent context launcher and per-account cookie importer."""
 import re
+import time
 from pathlib import Path
 
 import config
@@ -64,8 +65,9 @@ def cookie_profile_names() -> list[str]:
 
 
 def _parse_cookie_header(header: str) -> list[dict]:
-    """Converts a browser Cookie header to Playwright cookie objects."""
+    """Converts a browser Cookie header to Playwright cookie objects with persistence and httpOnly."""
     cookies = []
+    now = time.time()
     for part in header.split(";"):
         part = part.strip()
         if not part or "=" not in part:
@@ -73,22 +75,43 @@ def _parse_cookie_header(header: str) -> list[dict]:
         name, value = (item.strip() for item in part.split("=", 1))
         if not name or name.startswith("$") or name.lower() in _COOKIE_ATTRIBUTES:
             continue
+        is_http_only = name.lower() in {
+            "sessionid", "sessionid_ss", "sid_guard", "sid_tt",
+            "passport_auth_status", "passport_auth_status_ss", "uid_tt", "uid_tt_ss"
+        }
+        domain = "www.dola.com" if name == "s_v_web_id" else ".dola.com"
         cookies.append({
             "name": name,
             "value": value,
-            "domain": ".dola.com",
+            "domain": domain,
             "path": "/",
             "secure": True,
+            "httpOnly": is_http_only,
+            "expires": now + 31536000,
         })
     return cookies
 
 
 async def apply_account_cookies(context, account: str) -> bool:
-    """Imports the cookie-file entry for ``account`` into a browser profile.
+    """Imports cookies for ``account`` into a browser profile.
 
-    Returns True when an entry was found. Imported cookies are persisted by the
-    persistent browser context and are available to all later page requests.
+    Prefers full cookies.json if available, falling back to parsed cookies.txt.
+    Sets expires (+1 year) so Chromium persists cookies to SQLite on disk.
     """
+    json_path = Path("accounts") / account / "cookies.json"
+    if json_path.exists():
+        try:
+            full_cookies = json.loads(json_path.read_text(encoding="utf-8"))
+            if any(c.get("name") == "sessionid" and c.get("value") for c in full_cookies):
+                now = time.time()
+                for c in full_cookies:
+                    if not c.get("expires") or c.get("expires") < 0:
+                        c["expires"] = now + 31536000
+                await context.add_cookies(full_cookies)
+                return True
+        except Exception:
+            pass
+
     header = _read_cookie_map().get(account)
     if header is None:
         return False
@@ -137,11 +160,10 @@ def configure_clean_profile(profile_dir: Path):
         "default_directory": project_download_dir,
     }
     # Ensure window is not clamped to small default 800x600 size
-    browser_dict = prefs.setdefault("browser", {})
-    browser_dict["window_placement"] = {
-        "bottom": 1080, "left": 0, "maximized": False, "right": 1296, "top": 0,
-        "work_area_bottom": 1080, "work_area_left": 0, "work_area_right": 1920, "work_area_top": 0,
-    }
+    # Prevent Chrome from wiping session cookies on close
+    session_dict = prefs.setdefault("session", {})
+    session_dict["restore_on_startup"] = 4
+
     prefs_file.write_text(json.dumps(prefs, indent=2), encoding="utf-8")
 
 def parse_proxy(raw: str | None) -> dict | None:
@@ -270,21 +292,49 @@ def cookie_value(cookies: list, name: str) -> str:
 
 
 async def check_login_state(account: str) -> bool:
-    """Opens Dola in headless mode and checks whether session is active."""
+    """Opens Dola in headless mode and checks whether session is genuinely active.
+    
+    Accurately detects:
+    1. Visible 'Đăng nhập' / 'Sign in' buttons or login modals -> False
+    2. User avatar or genuine conversation capability -> True
+    """
     from patchright.async_api import async_playwright
     async with async_playwright() as p:
-        context = await launch_account_context(p, account)
+        context = await launch_account_context(p, account, headless=True)
         try:
             page = context.pages[0] if context.pages else await context.new_page()
             await page.goto("https://www.dola.com/chat", timeout=60000, wait_until="domcontentloaded")
-            await page.wait_for_timeout(5000)
+            await page.wait_for_timeout(4000)
             cookies = await context.cookies("https://www.dola.com")
             if not cookie_value(cookies, "sessionid"):
                 return False
-            return bool(await page.evaluate(
-                """() => !!(document.querySelector('textarea')
-                        || document.querySelector('[contenteditable="true"]')
-                        || document.querySelector('input[type="text"]'))"""
-            ))
+
+            is_logged_out = await page.evaluate(
+                """() => {
+                    const buttons = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+                    const hasLoginBtn = buttons.some(el => {
+                        const t = (el.innerText || '').trim().toLowerCase();
+                        return ['đăng nhập', 'sign in', 'log in', 'ログイン', '登录'].includes(t);
+                    });
+                    if (hasLoginBtn) return true;
+
+                    const modals = Array.from(document.querySelectorAll('.semi-modal, [role="dialog"], .semi-modal-wrap'));
+                    const hasModal = modals.some(el => {
+                        const t = (el.innerText || '').toLowerCase();
+                        return t.includes('đăng nhập để mở khóa') || t.includes('tiếp tục bằng google') || t.includes('sign in to unlock');
+                    });
+                    return hasModal;
+                }"""
+            )
+            if is_logged_out:
+                return False
+
+            has_avatar = await page.evaluate(
+                """() => !!(document.querySelector("[class*='avatar'], [class*='user-avatar'], img[src*='avatar'], [class*='user-profile']"))"""
+            )
+            has_textarea = await page.evaluate(
+                """() => !!(document.querySelector('textarea') || document.querySelector('[contenteditable="true"]'))"""
+            )
+            return bool(has_avatar or has_textarea)
         finally:
             await context.close()

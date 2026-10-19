@@ -1,0 +1,8 @@
+docopt            # via -r requirements.in
+numpy            # via -r requirements.in, opencv-python, scipy, torch
+opencv-python   # via -r requirements.in
+pillow             # via -r requirements.in
+scipy             # via -r requirements.in
+six               # via -r requirements.in
+torch              # via -r requirements.in
+tqdm             # via -r requirements.in

@@ -809,17 +809,18 @@ async function loadAccounts(){
         + `<span class="tiny" style="color:#94a3b8">Không dùng</span>`
         + `<button class="btn" style="padding:2px 6px;font-size:11px" onclick="openEditProxy('${esc(x.name)}','')" title="Gán proxy">+ Proxy</button>`
         + `</div>`;
-    return [
-      `<span class="account-id">${esc(x.name)}</span>`,
-      accLabel(x)+warn,
-      proxyCell,
-      badge,
-      `<label class="sw"><input type="checkbox" ${x.scheduling?'checked':''} onchange="setSched('${x.name}',this.checked)"><i></i></label>`,
-      rem,
-      fmt(x.last_used_at),
-      fmt(x.created_at),
-      browserBtn+`<button class="btn" style="margin-right:6px" onclick="verify('${x.name}',this)">Verify</button><button class="btn btn-danger" onclick="delAccount('${x.name}')">Delete</button>`
-    ];
+      const reloginBtn = `<button class="btn" style="margin-right:6px;background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8" onclick="reloginAccount('${esc(x.name)}',${!!x.has_credentials},'${esc(x.email||'')}','${esc(x.proxy||'')}')" title="Đăng nhập lại tài khoản này">🔄 Đăng nhập lại</button>`;
+      return [
+        `<span class="account-id">${esc(x.name)}</span>`,
+        accLabel(x)+warn,
+        proxyCell,
+        badge,
+        `<label class="sw"><input type="checkbox" ${x.scheduling?'checked':''} onchange="setSched('${x.name}',this.checked)"><i></i></label>`,
+        rem,
+        fmt(x.last_used_at),
+        fmt(x.created_at),
+        browserBtn+reloginBtn+`<button class="btn" style="margin-right:6px" onclick="verify('${x.name}',this)">Verify</button><button class="btn btn-danger" onclick="delAccount('${x.name}')">Delete</button>`
+      ];
   });
   q('#accountsTable').innerHTML=table(['Account ID','Name','Proxy','Status','Dispatch','Tín dụng còn lại','Last Used','Created At','Actions'],rows);
 }
@@ -1238,6 +1239,54 @@ async function verify(name,btn){
     alert(name+' Session: '+(r.ok?'Active ✓':'Expired ✗'));
   }catch(e){alert(e.message);}
   btn.disabled=false;btn.textContent=old;refresh();
+}
+
+async function reloginAccount(name, hasCredentials, email, proxy){
+  if (hasCredentials) {
+    if (!confirm(`Bạn có muốn tự động đăng nhập lại cho tài khoản [${name}] bằng mật khẩu đã lưu không?`)) return;
+    try {
+      await api('/api/admin/accounts/' + encodeURIComponent(name) + '/relogin', {method: 'POST'});
+      alert(`Đã gửi yêu cầu đăng nhập lại cho ${name}! Quá trình đăng nhập và lưu cookies đang chạy nền. Vui lòng kiểm tra lại sau 15-30 giây.`);
+      refresh();
+    } catch(e) {
+      alert('Lỗi đăng nhập lại: ' + e.message);
+    }
+  } else {
+    showDlg(`<h2>Đăng nhập lại: ${esc(name)}</h2>
+      <div class="hint" style="margin-bottom:12px;line-height:1.5">
+        Tài khoản này chưa lưu mật khẩu trong hệ thống. Vui lòng nhập mật khẩu và mã 2FA. Hệ thống sẽ tự động đăng nhập và lưu lại để những lần sau bạn chỉ cần bấm <b>1 click</b> là xong!
+      </div>
+      <label>Tài khoản / Email đăng nhập</label>
+      <input id="f_relogin_email" value="${esc(email || name)}" readonly style="background:#f1f5f9;color:#475569;margin-bottom:10px">
+      <label>Mật khẩu</label>
+      <input id="f_relogin_pass" type="password" placeholder="Nhập mật khẩu Facebook / Google" style="margin-bottom:10px">
+      <label>Mã 2FA (Secret key)</label>
+      <input id="f_relogin_2fa" placeholder="Nhập chuỗi 2FA (nếu có, VD: JBSWY3DPEHPK3PXP)" style="margin-bottom:10px">
+      <label>Proxy riêng (tùy chọn)</label>
+      <input id="f_relogin_proxy" value="${esc(proxy || '')}" placeholder="host:port hoặc host:port:user:pass" style="font-family:monospace;margin-bottom:12px">
+      <div class="row" style="margin-top:14px;display:flex;justify-content:flex-end;gap:8px">
+        <button class="btn" onclick="hide('dlg')">Hủy</button>
+        <button class="btn btn-p" style="background:#1877F2;border-color:#1877F2" onclick="submitReloginWithCreds('${esc(name)}')">Bắt đầu Đăng nhập & Lưu</button>
+      </div>`);
+  }
+}
+
+async function submitReloginWithCreds(name){
+  const password = q('#f_relogin_pass') ? q('#f_relogin_pass').value : '';
+  const secret = q('#f_relogin_2fa') ? q('#f_relogin_2fa').value.trim() : '';
+  const proxy = q('#f_relogin_proxy') ? q('#f_relogin_proxy').value.trim() : '';
+  if (!password) return alert('Vui lòng nhập mật khẩu');
+  hide('dlg');
+  try {
+    await api('/api/admin/accounts/' + encodeURIComponent(name) + '/relogin', {
+      method: 'POST',
+      body: { password, secret, proxy }
+    });
+    alert(`Đã gửi yêu cầu đăng nhập lại cho ${name}! Quá trình đăng nhập và lưu cookies đang chạy nền. Vui lòng kiểm tra lại sau 15-30 giây.`);
+    refresh();
+  } catch(e) {
+    alert('Lỗi: ' + e.message);
+  }
 }
 
 async function delAccount(name){

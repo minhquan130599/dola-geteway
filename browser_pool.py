@@ -76,6 +76,9 @@ class BrowserPool:
             ("credit_balance", "INTEGER"),
             ("credit_checked_at", "REAL DEFAULT 0"),
             ("proxy", "TEXT DEFAULT ''"),
+            ("password", "TEXT DEFAULT ''"),
+            ("secret", "TEXT DEFAULT ''"),
+            ("account_type", "TEXT DEFAULT 'facebook'"),
         ):
             try:
                 self._conn.execute(f"ALTER TABLE accounts_meta ADD COLUMN {column} {definition}")
@@ -196,6 +199,8 @@ class BrowserPool:
                 "credit_balance": m["credit_balance"] if m else None,
                 "credit_checked_at": m["credit_checked_at"] if m else 0,
                 "proxy": (m["proxy"] or "") if m and "proxy" in m.keys() else "",
+                "has_credentials": bool(m and "password" in m.keys() and m["password"]),
+                "account_type": (m["account_type"] or "facebook") if m and "account_type" in m.keys() else "facebook",
                 "used_today": used,
                 "limit": config.DEFAULT_DAILY_CREDITS,
                 "remaining": m["credit_balance"] if m and m["credit_balance"] is not None else config.DEFAULT_DAILY_CREDITS,
@@ -221,6 +226,26 @@ class BrowserPool:
     def get_proxy(self, name: str) -> str:
         row = self._meta(name)
         return (row["proxy"] or "").strip() if row and "proxy" in row.keys() else ""
+
+    def set_credentials(self, name: str, password: str, secret: str = "", account_type: str = "facebook"):
+        self._conn.execute(
+            "UPDATE accounts_meta SET password=?, secret=?, account_type=? WHERE name=?",
+            (password, secret, account_type, name),
+        )
+        self._conn.commit()
+
+    def get_credentials(self, name: str) -> dict:
+        row = self._meta(name)
+        if not row:
+            return {}
+        keys = row.keys()
+        return {
+            "email": (row["email"] or "") if "email" in keys else "",
+            "password": (row["password"] or "") if "password" in keys else "",
+            "secret": (row["secret"] or "") if "secret" in keys else "",
+            "proxy": (row["proxy"] or "") if "proxy" in keys else "",
+            "account_type": (row["account_type"] or "facebook") if "account_type" in keys else "facebook",
+        }
 
     def set_login_status(self, name: str, ok: bool):
         self._conn.execute(
@@ -308,6 +333,8 @@ class BrowserPool:
         if not a.get("scheduling", True):
             return False
         if a.get("cooling") or a.get("rate_limited"):
+            return False
+        if a.get("login_ok") is False or a.get("login_ok") == 0:
             return False
         pts = a.get("credit_balance")
         if pts is not None:

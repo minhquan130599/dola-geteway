@@ -520,6 +520,12 @@ class FacebookAccountAdd(BaseModel):
     lines: str
 
 
+class AccountReloginRequest(BaseModel):
+    password: str | None = None
+    secret: str | None = None
+    proxy: str | None = None
+
+
 class KeyCreate(BaseModel):
     name: str = ""
     daily_limit: int = Field(0, ge=0, le=1_000_000)
@@ -1205,6 +1211,7 @@ async def _run_add_job(name: str, email: str, password: str, totp: str, proxy: s
     try:
         await add_account_flow(name, email, password, totp, proxy=proxy or "")
         pool.set_email(name, email)
+        pool.set_credentials(name, password, totp, account_type="google")
         pool.set_login_status(name, True)
         if proxy:
             pool.set_proxy(name, proxy)
@@ -1242,6 +1249,7 @@ async def _run_fb_job(job_id: str, raw_lines: str):
             if res.get("ok"):
                 pool._ensure_meta(account)
                 pool.set_email(account, tk)
+                pool.set_credentials(account, password, secret, account_type="facebook")
                 pool.set_login_status(account, True)
                 pool.set_note(account, "Facebook Login (vi-VN)")
                 if proxy:
@@ -1268,6 +1276,69 @@ async def admin_account_add_facebook(body: FacebookAccountAdd, x_admin_key: str 
     job_id = f"fb_{int(time.time())}"
     asyncio.create_task(_run_fb_job(job_id, raw))
     return {"ok": True, "job": job_id}
+
+
+async def _run_relogin_job(job_id: str, account: str, email: str, password: str, secret: str = "", proxy: str = "", account_type: str = "facebook"):
+    JOBS[job_id] = {"kind": "relogin", "account": account, "status": "running", "error": "", "started_at": time.time(), "summary": f"Đang đăng nhập lại {account}..."}
+    lock = pool._locks.setdefault(account, asyncio.Lock())
+    if lock.locked():
+        JOBS[job_id] = {**JOBS[job_id], "status": "failed", "error": f"Tài khoản '{account}' đang bận (đang tạo video hoặc có phiên khác)"}
+        return
+
+    async with lock:
+        try:
+            if account_type == "google":
+                from add_account import add_account_flow
+                await add_account_flow(account, email, password, secret, proxy=proxy or "")
+                res = {"ok": True}
+            else:
+                import importlib
+                import add_account_fb
+                importlib.reload(add_account_fb)
+                from add_account_fb import add_fb_account_flow
+                res = await add_fb_account_flow(account, email, password, secret, proxy=proxy or "")
+
+            if res.get("ok"):
+                pool._ensure_meta(account)
+                pool.set_login_status(account, True)
+                pool.set_credentials(account, password, secret, account_type=account_type)
+                if proxy:
+                    pool.set_proxy(account, proxy)
+                JOBS[job_id] = {**JOBS[job_id], "status": "success", "summary": f"Đăng nhập lại thành công cho '{account}'!"}
+            else:
+                err = res.get("error") or "Đăng nhập thất bại"
+                pool.set_login_status(account, False)
+                JOBS[job_id] = {**JOBS[job_id], "status": "failed", "error": f"{account}: {err}"}
+        except Exception as e:
+            pool.set_login_status(account, False)
+            JOBS[job_id] = {**JOBS[job_id], "status": "failed", "error": f"{account}: {str(e)}"}
+
+
+@app.post("/api/admin/accounts/{name}/relogin", status_code=202)
+async def admin_account_relogin(name: str, body: AccountReloginRequest | None = None, x_admin_key: str | None = Header(default=None)):
+    _admin_auth(x_admin_key)
+    if name not in pool.accounts:
+        raise HTTPException(404, f"Không tìm thấy tài khoản '{name}'")
+
+    saved = pool.get_credentials(name)
+    email = (saved.get("email") or name).strip()
+    password = (body.password.strip() if body and body.password else "") or saved.get("password") or ""
+    secret = (body.secret.strip() if body and body.secret else "") or saved.get("secret") or ""
+    proxy = (body.proxy.strip() if body and body.proxy is not None else "") or saved.get("proxy") or ""
+    acc_type = saved.get("account_type") or ("facebook" if name.startswith("fb_") else "google")
+
+    if not password:
+        raise HTTPException(400, "Tài khoản chưa lưu mật khẩu. Vui lòng nhập mật khẩu để đăng nhập lại.")
+
+    # Save credentials if provided in request
+    if body and (body.password or body.secret):
+        pool.set_credentials(name, password, secret, account_type=acc_type)
+    if body and body.proxy is not None:
+        pool.set_proxy(name, proxy)
+
+    job_id = f"relogin_{name}_{int(time.time())}"
+    asyncio.create_task(_run_relogin_job(job_id, name, email, password, secret, proxy, acc_type))
+    return {"ok": True, "job": job_id, "message": f"Đang tiến hành đăng nhập lại cho '{name}'..."}
 
 
 @app.get("/api/admin/jobs")
