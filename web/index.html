@@ -340,9 +340,14 @@ td .prompt{display:block;max-width:340px;overflow:hidden;text-overflow:ellipsis;
       <div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
           <label style="font-weight:600;font-size:12px;color:#334155;text-transform:uppercase;letter-spacing:0.3px">Prompt Video</label>
-          <button id="tmCopyPromptBtn" class="btn btn-p" style="padding:4px 12px;font-size:12px;display:inline-flex;align-items:center;gap:6px" onclick="copyTaskPrompt()">
-            <span>📋</span> <span id="tmCopyText">Sao chép Prompt</span>
-          </button>
+          <div style="display:flex;align-items:center;gap:6px">
+            <button id="tmRetryPromptBtn" class="btn" style="background:#0284c7;border-color:#0284c7;color:#fff;padding:4px 12px;font-size:12px;display:inline-flex;align-items:center;gap:5px" onclick="retryCurrentModalTask()" title="Chạy lại task này với cấu hình và prompt hiện tại">
+              <span>🔄</span> <span>Chạy lại Task</span>
+            </button>
+            <button id="tmCopyPromptBtn" class="btn btn-p" style="padding:4px 12px;font-size:12px;display:inline-flex;align-items:center;gap:5px" onclick="copyTaskPrompt()">
+              <span>📋</span> <span id="tmCopyText">Sao chép Prompt</span>
+            </button>
+          </div>
         </div>
         <div id="tmPromptText" style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:12px;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;max-height:220px;overflow-y:auto;user-select:text"></div>
       </div>
@@ -352,7 +357,18 @@ td .prompt{display:block;max-width:340px;overflow:hidden;text-overflow:ellipsis;
         <div style="font-weight:600;display:flex;align-items:center;gap:6px;margin-bottom:4px">
           <span>⚠️ Lỗi khi tạo video:</span>
         </div>
-        <div id="tmErrorText" style="line-height:1.5;white-space:pre-wrap;word-break:break-word"></div>
+        <div id="tmErrorText" style="line-height:1.5;white-space:pre-wrap;word-break:break-word;margin-bottom:10px"></div>
+        <div>
+          <button class="btn" style="background:#dc2626;border-color:#dc2626;color:#fff;padding:6px 14px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:6px;cursor:pointer" onclick="retryCurrentModalTask()">
+            <span>🔄</span> <span>Thử lại ngay (Gửi lại Prompt & Cấu hình)</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Reference Images if any -->
+      <div id="tmImagesWrap" style="display:none">
+        <label style="font-weight:600;font-size:12px;color:#334155;text-transform:uppercase;letter-spacing:0.3px;display:block;margin-bottom:6px">Ảnh tham chiếu (Reference Images)</label>
+        <div id="tmImagesList" style="display:flex;gap:8px;flex-wrap:wrap"></div>
       </div>
 
       <!-- Video preview if completed -->
@@ -408,6 +424,9 @@ td .prompt{display:block;max-width:340px;overflow:hidden;text-overflow:ellipsis;
     <div style="padding:12px 20px;border-top:1px solid var(--line);background:#f8fafc;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
       <div id="tmLiveBrowserBtnWrap"></div>
       <div style="display:flex;gap:8px">
+        <button id="tmRetryFooterBtn" class="btn" style="background:#0284c7;border-color:#0284c7;color:#fff;padding:6px 14px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:6px" onclick="retryCurrentModalTask()">
+          <span>🔄</span> <span>Chạy lại Task</span>
+        </button>
         <button id="tmCancelTaskBtn" class="btn btn-danger" style="display:none;padding:6px 14px" onclick="cancelCurrentModalTask()">Hủy Task</button>
         <button class="btn" style="padding:6px 16px" onclick="closeTaskModal()">Đóng</button>
       </div>
@@ -1439,6 +1458,32 @@ async function openTaskDetail(taskId){
     q('#tmErrorWrap').style.display = 'none';
   }
 
+  const imgWrap = q('#tmImagesWrap');
+  const imgList = q('#tmImagesList');
+  if (imgWrap && imgList) {
+    let refImgs = t?.reference_images || [];
+    if (typeof refImgs === 'string') {
+      try { refImgs = JSON.parse(refImgs); } catch(e) { refImgs = []; }
+    }
+    if (Array.isArray(refImgs) && refImgs.length > 0) {
+      imgList.innerHTML = refImgs.map((imgUrl, i) => `
+        <a href="${esc(imgUrl)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;border:1px solid #cbd5e1;border-radius:6px;overflow:hidden;width:72px;height:72px;background:#f1f5f9;position:relative" title="Mở ảnh tham chiếu ${i+1}">
+          <img src="${esc(imgUrl)}" alt="Ref ${i+1}" style="width:100%;height:100%;object-fit:cover" onerror="this.style.display='none';this.parentNode.innerHTML='<span style=\\'font-size:10px;padding:4px;display:block\\'>Ảnh ${i+1}</span>'">
+        </a>
+      `).join('');
+      imgWrap.style.display = 'block';
+    } else {
+      imgList.innerHTML = '';
+      imgWrap.style.display = 'none';
+    }
+  }
+
+  const retryBtn = q('#tmRetryFooterBtn');
+  const retryPromptBtn = q('#tmRetryPromptBtn');
+  const canRetry = (t?.status === 'failed' || t?.status === 'completed');
+  if (retryBtn) retryBtn.style.display = canRetry ? 'inline-flex' : 'none';
+  if (retryPromptBtn) retryPromptBtn.style.display = canRetry ? 'inline-flex' : 'none';
+
   const vWrap = q('#tmVideoWrap');
   const vEl = q('#tmVideoEl');
   const vLink = q('#tmVideoLink');
@@ -1477,6 +1522,34 @@ function closeTaskModal(){
     vEl.src = '';
   }
   hide('taskModal');
+}
+
+async function retryTask(taskId){
+  if (!taskId) return;
+  const t = CACHED_TASKS_MAP[taskId];
+  const promptPreview = t && t.prompt ? (t.prompt.length > 80 ? t.prompt.slice(0, 80) + '…' : t.prompt) : taskId;
+  if (!confirm(`Bạn có chắc chắn muốn chạy lại task này không?\n\n"${promptPreview}"\n\n(Hệ thống sẽ gửi lại đúng Prompt, Ảnh tham chiếu, Model, Ratio, Duration)`)) {
+    return;
+  }
+  try {
+    const res = await api('/api/admin/tasks/' + encodeURIComponent(taskId) + '/retry', { method: 'POST' });
+    if (res && res.ok) {
+      alert(`Đã chạy lại task thành công!\nTask ID mới: ${res.new_task_id}\nTrạng thái: ${res.status}`);
+      closeTaskModal();
+      await refresh();
+      if (res.new_task_id) {
+        openTaskDetail(res.new_task_id);
+      }
+    }
+  } catch(e) {
+    alert('Lỗi khi chạy lại task: ' + (e.message || e));
+  }
+}
+
+function retryCurrentModalTask(){
+  if (currentModalTaskId) {
+    retryTask(currentModalTaskId);
+  }
 }
 
 async function cancelCurrentModalTask(){
@@ -1525,6 +1598,8 @@ async function loadTasks(){
     }
     if (t.status === 'processing' || t.status === 'queued') {
       action += `<button class="btn" style="color:#ef4444;border-color:#ef4444;padding:3px 8px;font-size:12px;cursor:pointer" onclick="cancelTask('${esc(t.id)}')">Cancel</button>`;
+    } else {
+      action += `<button class="btn" style="color:#0284c7;border-color:#0284c7;padding:3px 8px;font-size:12px;cursor:pointer" onclick="retryTask('${esc(t.id)}')" title="Chạy lại task này với cấu hình cũ">🔄 Chạy lại</button>`;
     }
 
     return [

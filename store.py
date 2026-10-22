@@ -207,8 +207,6 @@ class TaskStore:
         if not fields:
             return
         fields["updated_at"] = time.time()
-        if fields.get("status") in ("completed", "failed"):
-            fields.setdefault("reference_images", "[]")
         cols = ", ".join(f"{k}=?" for k in fields)
         vals = list(fields.values()) + [task_id]
         with _LOCK:

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from dola_client import CreditError
 from video_worker_ui import (
-    ACTIVE_WORKER_BROWSERS, AccountLimitedError, CreditInsufficientError,
+    ACTIVE_WORKER_BROWSERS, AccountLimitedError, AccountLoggedOutError, CreditInsufficientError,
     PromptClarificationError, RiskControlError, generate_video, resume_video,
 )
 import config
@@ -501,13 +501,19 @@ class BrowserPool:
                             self._conn.commit()
                             print(f"[pool] {account} prompt clarification error (rejecting task immediately): {e}", flush=True)
                             raise
+                        except AccountLoggedOutError as e:
+                            print(f"[pool] {account} is logged out, marking login_ok=0 and rotating: {e}", flush=True)
+                            self.set_login_status(account, False)
+                            last_err = e
+                            continue
                         except TimeoutError as e:
-                            self._claim(account)
+                            print(f"[pool] {account} timed out ({e}), putting on 5m cooldown and rotating", flush=True)
                             self._conn.execute(
-                                "UPDATE accounts_meta SET last_used_at=? WHERE name=?",
-                                (time.time(), account))
+                                "UPDATE accounts_meta SET cooldown_until=?, last_used_at=? WHERE name=?",
+                                (time.time() + 300, time.time(), account))
                             self._conn.commit()
-                            raise
+                            last_err = e
+                            continue
                         except FileNotFoundError as e:
                             print(f"[pool] {account} profile missing, skipping: {e}", flush=True)
                             last_err = e

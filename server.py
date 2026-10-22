@@ -1432,10 +1432,70 @@ async def admin_get_task(request: Request, task_id: str, x_admin_key: str | None
     task = store.get(task_id)
     if not task:
         raise HTTPException(404, "task not found")
-    task.pop("reference_images", None)
+    ref_imgs = task.get("reference_images")
+    if isinstance(ref_imgs, str):
+        try:
+            task["reference_images"] = json.loads(ref_imgs)
+        except Exception:
+            task["reference_images"] = []
+    elif not isinstance(ref_imgs, list):
+        task["reference_images"] = []
     if task.get("video_url"):
         task["video_url"] = resolve_video_url(task["video_url"], request)
     return {"task": task}
+
+
+@app.post("/api/admin/tasks/{task_id}/retry")
+async def admin_task_retry(task_id: str, x_admin_key: str | None = Header(default=None)):
+    _admin_auth(x_admin_key)
+    task = store.get(task_id)
+    if not task:
+        raise HTTPException(404, "task not found")
+
+    ref_imgs_raw = task.get("reference_images") or []
+    if isinstance(ref_imgs_raw, str):
+        try:
+            ref_imgs = json.loads(ref_imgs_raw)
+        except Exception:
+            ref_imgs = []
+    elif isinstance(ref_imgs_raw, list):
+        ref_imgs = ref_imgs_raw
+    else:
+        ref_imgs = []
+
+    api_key_hash = task.get("api_key_hash") or "admin"
+    client = {
+        "api_key_hash": api_key_hash,
+        "api_key_name": task.get("api_key_name") or "admin",
+        "daily_limit": task.get("daily_limit") or 0,
+        "concurrency_limit": task.get("concurrency_limit") or 0,
+        "allowed_durations": list(SUPPORTED_DURATIONS),
+    }
+
+    ratio = task.get("ratio")
+    if ratio == "default":
+        ratio = None
+
+    duration = int(task.get("duration") or 10)
+    model = task.get("model") or "seedance-2.0"
+    prompt = task.get("prompt") or ""
+
+    req = VideoGenRequest(
+        model=model,
+        prompt=prompt,
+        ratio=ratio,
+        duration=duration,
+        reference_images=ref_imgs,
+    )
+    res = await _queue_video(req, client)
+    return {
+        "ok": True,
+        "old_task_id": task_id,
+        "new_task_id": res.id,
+        "status": res.status,
+        "prompt": res.prompt,
+        "model": res.model,
+    }
 
 
 

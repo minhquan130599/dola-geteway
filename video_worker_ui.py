@@ -32,6 +32,10 @@ class PromptClarificationError(Exception):
     """Raised when Dola requests prompt clarification (duration/script) instead of creating video."""
 
 
+class AccountLoggedOutError(Exception):
+    """Raised when an account session has expired and login dialog appears."""
+
+
 # Daily limit pattern matching response text
 DAILY_LIMIT_PATTERN = re.compile(
     r"動画生成の\s*1日あたりの上限|每日(?:视频|影片)?生成.*(?:上限|限额|额度)|"
@@ -598,7 +602,7 @@ async def generate_video(account: str, prompt: str, ratio: str = None,
                 }"""
             )
             if is_logged_out:
-                raise CreditError(f"Tài khoản '{account}' đã bị đăng xuất trên Dola (xuất hiện popup Đăng nhập). Vui lòng đăng nhập lại.")
+                raise AccountLoggedOutError(f"Tài khoản '{account}' đã bị đăng xuất trên Dola (xuất hiện popup Đăng nhập). Vui lòng đăng nhập lại.")
 
             req_points = config.estimate_required_credits(model_key, ratio, duration)
             print(f"[{account}] Mode requirement: {req_points} credit point(s) (model={model_key}, ratio={ratio}, duration={duration}s)", flush=True)
@@ -783,6 +787,28 @@ async def generate_video(account: str, prompt: str, ratio: str = None,
                     break
             if not conv_id:
                 await page.screenshot(path="no_conv.png")
+                try:
+                    is_logged_out = await page.evaluate(
+                        """() => {
+                            const buttons = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+                            const hasLoginBtn = buttons.some(el => {
+                                const t = (el.innerText || '').trim().toLowerCase();
+                                return ['đăng nhập', 'sign in', 'log in', 'ログイン', '登录'].includes(t);
+                            });
+                            if (hasLoginBtn) return true;
+                            const modals = Array.from(document.querySelectorAll('.semi-modal, [role="dialog"], .semi-modal-wrap'));
+                            return modals.some(el => {
+                                const t = (el.innerText || '').toLowerCase();
+                                return t.includes('đăng nhập để mở khóa') || t.includes('tiếp tục bằng google') || t.includes('sign in to unlock');
+                            });
+                        }"""
+                    )
+                    if is_logged_out:
+                        raise AccountLoggedOutError(f"Tài khoản '{account}' bị đăng xuất trên Dola (xuất hiện popup Đăng nhập).")
+                except AccountLoggedOutError:
+                    raise
+                except Exception:
+                    pass
                 raise TimeoutError("conversation_id not acquired within 30s")
             print(f"[{account}] conversation_id={conv_id}, polling for video...", flush=True)
 
