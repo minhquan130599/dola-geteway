@@ -102,16 +102,5 @@ uvicorn server:app --host 0.0.0.0 --port 8000
 Open **http://127.0.0.1:8000/web** to access the Admin Dashboard.
 
 
-### 🌐 SonicVoice (For Voice Clone)
-
-[![Website](https://img.shields.io/badge/Website-SonicVoice.pro-6366f1?style=for-the-badge&logo=google-chrome&logoColor=white)](https://sonicvoice.pro)
-
-### 💬 Admin & Support
-
-[![Zalo](https://img.shields.io/badge/Zalo-Nhóm%20Zalo-0068FF?style=for-the-badge&logoColor=white)](https://zalo.me/g/jvwa05y9id3apkgfocw0)
-[![Telegram](https://img.shields.io/badge/Telegram-Bang%20Ngọc%20Thái-229ED9?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/BangNgocThai47271)
-
----
-
 ## 📜 License
 For educational and internal testing purposes.
