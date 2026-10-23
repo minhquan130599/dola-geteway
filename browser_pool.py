@@ -277,7 +277,10 @@ class BrowserPool:
         if lock.locked():
             raise RuntimeError("Account is generating video, please verify later")
         from browser import check_login_state
-        ok = await check_login_state(name)
+        # Hold the lock while the check browser runs: a relogin started meanwhile used to
+        # open a second Chrome on the same profile, which exits at once (code 21).
+        async with lock:
+            ok = await check_login_state(name)
         self._conn.execute(
             "UPDATE accounts_meta SET login_ok=?, login_checked_at=? WHERE name=?",
             (1 if ok else 0, time.time(), name),

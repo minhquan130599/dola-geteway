@@ -1351,6 +1351,13 @@ async def _run_relogin_job(job_id: str, account: str, email: str, password: str,
             async def on_browser_ready(ctx, pg):
                 ACTIVE_RELOGIN_BROWSERS[account] = {"context": ctx, "page": pg, "started_at": time.time()}
 
+            # A Chrome still holding this profile (closed live view, login check) makes the
+            # new login browser exit at once ("Target page, context or browser has been closed").
+            from browser import release_profile
+            stopped = await asyncio.to_thread(release_profile, Path("accounts") / account)
+            if stopped:
+                JOBS[job_id] = {**JOBS[job_id], "summary": f"Đã đóng {stopped} trình duyệt cũ còn giữ profile, đang đăng nhập lại {account}..."}
+
             if account_type == "google":
                 import add_account
                 import importlib

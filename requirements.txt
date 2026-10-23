@@ -6,3 +6,4 @@ patchright
 python-dotenv
 pillow
 pyjwt
+psutil>=5.9

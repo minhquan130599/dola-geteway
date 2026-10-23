@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -145,6 +146,44 @@ def cleanup_profile_locks(profile_dir: Path | str):
                     f.unlink(missing_ok=True)
                 except Exception:
                     pass
+
+
+def release_profile(profile_dir: Path | str, timeout: float = 10.0) -> int:
+    """Closes Chrome processes still running on this profile (left over from a closed live view,
+    a login check or a crashed run) so a new browser can open it. Returns how many were stopped."""
+    try:
+        import psutil
+    except ImportError:
+        return 0
+    target = os.path.normcase(str(Path(profile_dir).resolve()))
+    victims = []
+    for proc in psutil.process_iter(["name", "cmdline"]):
+        try:
+            name = (proc.info.get("name") or "").lower()
+            if "chrome" not in name and "chromium" not in name:
+                continue
+            for arg in proc.info.get("cmdline") or []:
+                if arg.lower().startswith("--user-data-dir="):
+                    value = arg.split("=", 1)[1].strip('"')
+                    if os.path.normcase(str(Path(value).resolve())) == target:
+                        victims.append(proc)
+                    break
+        except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+            continue
+    for proc in victims:
+        try:
+            proc.terminate()
+        except psutil.NoSuchProcess:
+            pass
+    _, alive = psutil.wait_procs(victims, timeout=timeout)
+    for proc in alive:
+        try:
+            proc.kill()
+        except psutil.NoSuchProcess:
+            pass
+    if victims:
+        cleanup_profile_locks(profile_dir)
+    return len(victims)
 
 
 def configure_clean_profile(profile_dir: Path):
